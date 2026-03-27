@@ -24,29 +24,54 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _syncData();
   }
 
-  // 가이드 노출 여부 확인
   Future<void> _checkFirstLaunch() async {
     final prefs = await SharedPreferences.getInstance();
-    // 저장된 값이 없거나 true면 가이드를 보여줌
+    final settings = ref.read(leaveStateProvider);
+
     final bool isFirst = prefs.getBool('is_first_launch') ?? true;
+
     if (isFirst) {
       setState(() => _showGuide = true);
+
+      // ★ 설정 데이터가 없으면 다이얼로그 노출
+      if (settings == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showInitSettingDialog();
+        });
+      }
     }
   }
 
-  // 가이드 닫기 및 다시 보지 않기 설정
+  void _showInitSettingDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("설정이 필요합니다 📅", style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text("정확한 연차 관리를 위해\n먼저 입사일을 설정해주세요."),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
+            },
+            child: const Text("설정하러 가기", style: TextStyle(color: Color(0xFF764BA2), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _closeGuide() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_first_launch', false);
     setState(() => _showGuide = false);
   }
 
-  // ★ 로그아웃 시 가이드 상태 초기화
   Future<void> _handleLogout() async {
     final prefs = await SharedPreferences.getInstance();
-    // 가이드 상태를 다시 true로 초기화하여 다음 로그인 시 보이게 함
     await prefs.setBool('is_first_launch', true);
-
     await ref.read(calendarServiceProvider).signOut();
 
     if (mounted) {
@@ -56,7 +81,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _syncData() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _detectedEvents = []; // 동기화 시작 시 리스트 초기화
+    });
 
     try {
       final service = ref.read(calendarServiceProvider);
@@ -68,9 +96,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (account != null) {
         final result = await service.calculateUsedLeave(account, settings.resetDate);
         if (mounted) {
+          final now = DateTime.now();
+          List<Map<String, dynamic>> sortedEvents = List.from(result.events);
+
+          // ★ 정렬 로직: 미래 휴가는 위로, 지난 휴가는 아래로
+          sortedEvents.sort((a, b) {
+            final DateTime dateA = a['date'] is DateTime ? a['date'] : DateTime.parse(a['date'].toString());
+            final DateTime dateB = b['date'] is DateTime ? b['date'] : DateTime.parse(b['date'].toString());
+
+            bool isPastA = dateA.isBefore(now);
+            bool isPastB = dateB.isBefore(now);
+
+            if (isPastA != isPastB) {
+              return isPastA ? 1 : -1; // 지난 것은 뒤로, 미래 것은 앞으로
+            }
+            // 같은 그룹 내에서는 날짜순(최신순 혹은 가까운 날짜순) 정렬
+            return isPastA ? dateB.compareTo(dateA) : dateA.compareTo(dateB);
+          });
+
           setState(() {
             _usedLeave = result.totalUsed;
-            _detectedEvents = result.events;
+            _detectedEvents = sortedEvents;
           });
         }
       }
@@ -96,7 +142,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.redAccent),
-            onPressed: _handleLogout, // 수정된 로그아웃 함수 호출
+            onPressed: _handleLogout,
           ),
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.grey),
@@ -156,7 +202,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  // HomeScreen 내 _buildDashboardCard 부분 교체
   Widget _buildDashboardCard(double total, double remaining) {
+    // 소수점 2자리까지 유효한 숫자로 포맷팅
+    String formatNum(double n) {
+      if (n == n.toInt()) return n.toInt().toString();
+      return n.toStringAsFixed(2);
+    }
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -168,11 +221,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           const Text("사용 가능한 연차", style: TextStyle(color: Colors.white70, fontSize: 16)),
           const SizedBox(height: 8),
-          Text("${remaining.toStringAsFixed(2)} / ${total.toStringAsFixed(1)}",
+          // ★ total도 formatNum을 써서 2.25가 2.3으로 반올림되지 않게 표시
+          Text("${remaining.toStringAsFixed(2)} / ${formatNum(total)}",
               style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
           LinearProgressIndicator(
-            value: total > 0 ? (remaining / total).clamp(0, 1) : 0,
+            value: total > 0 ? (remaining / total).clamp(0.0, 1.0) : 0,
             backgroundColor: Colors.white24,
             valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
             minHeight: 8,
@@ -184,22 +238,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildEventTile(Map<String, dynamic> event) {
     final dynamic dateValue = event['date'];
-    String dateStr = "날짜 정보 없음";
+    final DateTime eventDate = dateValue is DateTime ? dateValue : DateTime.parse(dateValue.toString());
+    final bool isPast = eventDate.isBefore(DateTime.now()); // ★ 현재 시간 기준 과거 여부
 
-    if (dateValue is DateTime) {
-      dateStr = "${dateValue.year}.${dateValue.month}.${dateValue.day}";
-    } else if (dateValue != null) {
-      dateStr = dateValue.toString().split('T')[0].replaceAll('-', '.');
-    }
+    String dateStr = "${eventDate.year}.${eventDate.month.toString().padLeft(2, '0')}.${eventDate.day.toString().padLeft(2, '0')}";
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      elevation: isPast ? 0 : 2, // ★ 지난 휴가는 그림자 제거
+      color: isPast ? const Color(0xFFF1F1F1) : Colors.white, // ★ 지난 휴가는 연한 회색 배경
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        leading: const CircleAvatar(backgroundColor: Color(0xFFF3E5F5), child: Icon(Icons.beach_access, color: Color(0xFF764BA2))),
-        title: Text(event['title'], style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(dateStr),
-        trailing: Text("-${event['deduction']}개", style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold, fontSize: 16)),
+        leading: CircleAvatar(
+          backgroundColor: isPast ? Colors.grey[300] : const Color(0xFFF3E5F5),
+          child: Icon(
+              Icons.beach_access,
+              color: isPast ? Colors.grey[600] : const Color(0xFF764BA2)
+          ),
+        ),
+        title: Text(
+            event['title'],
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: isPast ? Colors.grey[600] : Colors.black87, // ★ 지난 휴가는 글자색 연하게
+            )
+        ),
+        subtitle: Text(dateStr, style: TextStyle(color: isPast ? Colors.grey[500] : Colors.black54)),
+        trailing: Text(
+            "-${event['deduction']}개",
+            style: TextStyle(
+                color: isPast ? Colors.grey[400] : Colors.deepOrange, // ★ 차감 개수 색상 구분
+                fontWeight: FontWeight.bold,
+                fontSize: 16
+            )
+        ),
       ),
     );
   }
@@ -222,7 +294,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const Text("💡 필수: 구글 캘린더 연동 안내", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               const Text(
-                "본 앱은 본인의 구글 캘린더(Primary)에\n직접 입력하신 일정을 읽어오는 방식입니다.\n아래 규칙에 맞춰 일정을 등록해 주세요.",
+                "본 앱은 본인의 구글 캘린더에\n직접 입력하신 일정을 자동으로 읽어오는 방식입니다.\n로그인한 구글 계정의 캘린더에 \n아래 규칙에 맞춰 일정을 등록해 주세요.",
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.black87, height: 1.5),
               ),
@@ -234,7 +306,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _closeGuide, // 가이드 닫으면서 false 저장
+                  onPressed: _closeGuide,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF764BA2),
                     foregroundColor: Colors.white,

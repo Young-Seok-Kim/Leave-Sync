@@ -1,21 +1,25 @@
 import 'package:hive/hive.dart';
 
-part 'user_setting.g.dart'; // 터미널에서 build_runner 실행 필요
+part 'user_setting.g.dart';
 
 @HiveType(typeId: 0)
 class UserSetting extends HiveObject {
   @HiveField(0)
-  double totalLeave; // 총 연차
+  final double totalLeave;
 
   @HiveField(1)
-  DateTime resetDate; // 초기화 날짜
+  final DateTime resetDate;
 
   @HiveField(2)
-  bool isFirstRun; // 첫 실행 여부
+  final bool isFirstRun;
+
+  @HiveField(3)
+  final DateTime? entryDate; // ★ 입사일 저장을 위한 필드 추가
 
   UserSetting({
     required this.totalLeave,
     required this.resetDate,
-    this.isFirstRun = true,
+    this.isFirstRun = false,
+    this.entryDate,
   });
 }
