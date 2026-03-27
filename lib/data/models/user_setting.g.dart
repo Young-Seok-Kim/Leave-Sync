@@ -20,19 +20,22 @@ class UserSettingAdapter extends TypeAdapter<UserSetting> {
       totalLeave: fields[0] as double,
       resetDate: fields[1] as DateTime,
       isFirstRun: fields[2] as bool,
+      entryDate: fields[3] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, UserSetting obj) {
     writer
-      ..writeByte(3)
+      ..writeByte(4)
       ..writeByte(0)
       ..write(obj.totalLeave)
       ..writeByte(1)
       ..write(obj.resetDate)
       ..writeByte(2)
-      ..write(obj.isFirstRun);
+      ..write(obj.isFirstRun)
+      ..writeByte(3)
+      ..write(obj.entryDate);
   }
 
   @override
