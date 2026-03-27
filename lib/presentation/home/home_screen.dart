@@ -81,6 +81,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _syncData() async {
     if (!mounted) return;
+
     setState(() {
       _isLoading = true;
       _detectedEvents = []; // 동기화 시작 시 리스트 초기화
@@ -97,20 +98,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final result = await service.calculateUsedLeave(account, settings.resetDate);
         if (mounted) {
           final now = DateTime.now();
+          final todayStart = DateTime(now.year, now.month, now.day);
+
           List<Map<String, dynamic>> sortedEvents = List.from(result.events);
 
-          // ★ 정렬 로직: 미래 휴가는 위로, 지난 휴가는 아래로
           sortedEvents.sort((a, b) {
             final DateTime dateA = a['date'] is DateTime ? a['date'] : DateTime.parse(a['date'].toString());
             final DateTime dateB = b['date'] is DateTime ? b['date'] : DateTime.parse(b['date'].toString());
 
-            bool isPastA = dateA.isBefore(now);
-            bool isPastB = dateB.isBefore(now);
+            // ★ 날짜만 비교하기 위해 시간 정보 제거
+            final dayA = DateTime(dateA.year, dateA.month, dateA.day);
+            final dayB = DateTime(dateB.year, dateB.month, dateB.day);
+
+            // 오늘이거나 미래면 false, 어제 이전이면 true
+            bool isPastA = dayA.isBefore(todayStart);
+            bool isPastB = dayB.isBefore(todayStart);
 
             if (isPastA != isPastB) {
-              return isPastA ? 1 : -1; // 지난 것은 뒤로, 미래 것은 앞으로
+              return isPastA ? 1 : -1;
             }
-            // 같은 그룹 내에서는 날짜순(최신순 혹은 가까운 날짜순) 정렬
             return isPastA ? dateB.compareTo(dateA) : dateA.compareTo(dateB);
           });
 
@@ -239,15 +245,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget _buildEventTile(Map<String, dynamic> event) {
     final dynamic dateValue = event['date'];
     final DateTime eventDate = dateValue is DateTime ? dateValue : DateTime.parse(dateValue.toString());
-    final bool isPast = eventDate.isBefore(DateTime.now()); // ★ 현재 시간 기준 과거 여부
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final eventDay = DateTime(eventDate.year, eventDate.month, eventDate.day);
+
+    // 어제 이전이면 true (회색), 오늘 포함 미래면 false (하얀색)
+    final bool isPast = eventDay.isBefore(todayStart);
+    final bool isToday = DateUtils.isSameDay(eventDay, now);
 
     String dateStr = "${eventDate.year}.${eventDate.month.toString().padLeft(2, '0')}.${eventDate.day.toString().padLeft(2, '0')}";
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: isPast ? 0 : 2, // ★ 지난 휴가는 그림자 제거
-      color: isPast ? const Color(0xFFF1F1F1) : Colors.white, // ★ 지난 휴가는 연한 회색 배경
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: isPast ? 0 : 2,
+      // ★ 오늘인 경우에도 다른 미래 휴가와 똑같이 'Colors.white'로 설정
+      color: isPast ? const Color(0xFFF1F1F1) : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        // ★ 색상 대신 깔끔하게 '테두리'만 포인트로 줌
+        side: isToday ? const BorderSide(color: Color(0xFF764BA2), width: 2.0) : BorderSide.none,
+      ),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: isPast ? Colors.grey[300] : const Color(0xFFF3E5F5),
@@ -256,18 +274,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               color: isPast ? Colors.grey[600] : const Color(0xFF764BA2)
           ),
         ),
-        title: Text(
-            event['title'],
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: isPast ? Colors.grey[600] : Colors.black87, // ★ 지난 휴가는 글자색 연하게
-            )
+        title: Row(
+          children: [
+            Text(
+                event['title'],
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: isPast ? Colors.grey[600] : Colors.black87,
+                )
+            ),
+            if (isToday) ...[
+              const SizedBox(width: 8),
+              const Badge(
+                label: Text("오늘", style: TextStyle(fontSize: 10, color: Colors.white)),
+                backgroundColor: Color(0xFF764BA2),
+              ),
+            ]
+          ],
         ),
         subtitle: Text(dateStr, style: TextStyle(color: isPast ? Colors.grey[500] : Colors.black54)),
         trailing: Text(
             "-${event['deduction']}개",
             style: TextStyle(
-                color: isPast ? Colors.grey[400] : Colors.deepOrange, // ★ 차감 개수 색상 구분
+                color: isPast ? Colors.grey[400] : Colors.deepOrange,
                 fontWeight: FontWeight.bold,
                 fontSize: 16
             )
