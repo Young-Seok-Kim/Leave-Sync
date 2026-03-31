@@ -1,8 +1,10 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:leavesync/presentation/home/settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/providers/leave_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -11,7 +13,7 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   double _usedLeave = 0.0;
   List<Map<String, dynamic>> _detectedEvents = [];
   bool _isLoading = false;
@@ -20,8 +22,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkFirstLaunch();
     _syncData();
+  }
+
+  @override
+  void dispose() {
+    // 3. 옵저버 해제 (메모리 누수 방지)
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 앱이 다시 화면으로 돌아왔을 때 (resumed)
+    if (state == AppLifecycleState.resumed) {
+      debugPrint("앱 복귀 감지: 데이터 새로고침 시작");
+      _syncData();
+    }
   }
 
   Future<void> _checkFirstLaunch() async {
@@ -162,11 +181,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           if (_showGuide) _buildGuideOverlay(),
         ],
       ),
+      // 가독성과 클릭 편의성을 모두 잡은 FAB 스타일
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isLoading ? null : _syncData,
-        label: Text(_isLoading ? "동기화 중..." : "지금 동기화"),
-        icon: const Icon(Icons.sync),
+        onPressed: _showLeaveTypeSheet,
+        label: const Text(
+          "연차 등록",
+          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5),
+        ),
+        icon: const Icon(Icons.add_task),
         backgroundColor: const Color(0xFF764BA2),
+        foregroundColor: Colors.white,
+        elevation: 10, // 그림자를 강화해서 리스트와 시각적으로 분리
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+          side: BorderSide(color: Colors.white.withOpacity(0.2), width: 1), // 미세한 테두리로 경계 명확화
+        ),
       ),
     );
   }
@@ -356,4 +385,84 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     padding: const EdgeInsets.symmetric(vertical: 6),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(t), Text(v, style: const TextStyle(color: Color(0xFF764BA2), fontWeight: FontWeight.bold))]),
   );
+
+  // 1. 날짜를 먼저 선택받는 함수
+  Future<void> _showLeaveTypeSheet() async {
+    // 오늘부터 1년 후까지 선택 가능하도록 설정
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 30)), // 한달 전부터
+      lastDate: DateTime.now().add(const Duration(days: 365)), // 1년 후까지
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF764BA2), // 우리 앱 메인 컬러로 달력 색상 변경
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    // 날짜 선택 안 하고 취소하면 종료
+    if (pickedDate == null) return;
+
+    // 2. 날짜 선택 후 어떤 휴가인지 물어봄 (Context 유지 필요)
+    if (!mounted) return;
+
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: Text("${pickedDate.year}.${pickedDate.month}.${pickedDate.day} 휴가 종류"),
+        actions: [
+          _leaveAction(pickedDate, "연차", 9, 18),
+          _leaveAction(pickedDate, "반차", 13, 18),
+          _leaveAction(pickedDate, "반반차", 16, 18),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("취소", style: TextStyle(color: Colors.redAccent)),
+        ),
+      ),
+    );
+  }
+
+// 3. 반복되는 액션 생성용 헬퍼 함수
+  Widget _leaveAction(DateTime date, String type, int startHour, int endHour) {
+    return CupertinoActionSheetAction(
+      onPressed: () {
+        Navigator.pop(context);
+        _openGoogleCalendar(date, type, startHour, endHour);
+      },
+      child: Text("$type ($startHour시 - $endHour시)"),
+    );
+  }
+
+// 4. 최종 캘린더 실행 함수 (시간 계산 로직 포함)
+  Future<void> _openGoogleCalendar(DateTime date, String type, int startH, int endH) async {
+    final start = DateTime(date.year, date.month, date.day, startH);
+    final end = DateTime(date.year, date.month, date.day, endH);
+
+    // 구글 캘린더 포맷팅 (UTC 변환 필수)
+    String formatTime(DateTime dt) =>
+        dt.toUtc().toIso8601String().replaceAll(RegExp(r'[-:]|\.\d+'), '');
+
+    final String dateParam = "${formatTime(start)}/${formatTime(end)}";
+
+    final Uri uri = Uri.parse("https://www.google.com/calendar/render").replace(
+      queryParameters: {
+        'action': 'TEMPLATE',
+        'text': '[$type]',
+        'dates': dateParam,
+        'details': 'LeaveSync 앱에서 등록된 $type 일정입니다.',
+      },
+    );
+
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
 }
