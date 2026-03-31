@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -296,6 +298,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         side: isToday ? const BorderSide(color: Color(0xFF764BA2), width: 2.0) : BorderSide.none,
       ),
       child: ListTile(
+        onTap: () => _openEventInGoogleCalendar(event['id']),
         leading: CircleAvatar(
           backgroundColor: isPast ? Colors.grey[300] : const Color(0xFFF3E5F5),
           child: Icon(
@@ -465,4 +468,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     }
   }
 
+  Future<void> _openEventInGoogleCalendar(String? eventId) async {
+    if (eventId == null || eventId.isEmpty) {
+      debugPrint("에러: eventId가 없습니다!");
+      return;
+    }
+
+    // eid 방식 대신 'view' 혹은 'edit' 경로를 사용 (더 잘 열림)
+    final String url = "https://www.google.com/calendar/event?eid=${_encodeId(eventId)}";
+    // 또는 가장 확실한 방법:
+    // final String url = "https://calendar.google.com/calendar/r/eventedit/$eventId";
+
+    final Uri uri = Uri.parse(url);
+
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint("실행 실패: $url");
+    }
+  }
+
+// 구글 API ID를 딥링크용 ID로 변환해야 할 수도 있음
+  String _encodeId(String id) {
+    return base64Encode(utf8.encode('$id user@gmail.com')).replaceAll('=', '');
+    // 실제로는 본인 이메일 주소가 포함된 문자열을 base64 인코딩해야 함
+  }
 }

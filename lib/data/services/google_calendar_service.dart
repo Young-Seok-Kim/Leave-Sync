@@ -71,6 +71,7 @@ class GoogleCalendarService {
           if (deduction > 0) {
             used += deduction;
             detectedEvents.add({
+              'id': event.id,
               'title': title,
               'date': event.start?.dateTime ?? event.start?.date,
               'deduction': deduction,
