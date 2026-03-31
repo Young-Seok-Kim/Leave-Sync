@@ -58,8 +58,6 @@ class GoogleCalendarService {
           final cleanTitle = title.replaceAll(' ', '');
           double deduction = 0.0;
 
-          debugPrint("📌 캘린더에서 읽은 제목: '${event.summary}' | 시작시간: ${event.start?.dateTime ?? event.start?.date}");
-
           if (cleanTitle.contains('연차')) {
             deduction = 1.0;
           } else if (cleanTitle.contains('반차')) {
