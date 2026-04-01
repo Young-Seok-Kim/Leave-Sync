@@ -239,12 +239,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  // HomeScreen 내 _buildDashboardCard 부분 교체
   Widget _buildDashboardCard(double total, double remaining) {
-    // 소수점 2자리까지 유효한 숫자로 포맷팅
+    // 🎯 소수점이 .00이면 정수로, 아니면 불필요한 0만 제거하는 헬퍼 함수
     String formatNum(double n) {
-      if (n == n.toInt()) return n.toInt().toString();
-      return n.toStringAsFixed(2);
+      if (n == n.toInt()) return n.toInt().toString(); // 15.0 -> 15
+      // toStringAsFixed(2) 후 소수점 뒤의 불필요한 0과 마침표 제거 (14.50 -> 14.5)
+      return n.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
     }
 
     return Container(
@@ -252,15 +252,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       decoration: BoxDecoration(
         gradient: const LinearGradient(colors: [Color(0xFF667EEA), Color(0xFF764BA2)]),
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.blueAccent.withOpacity(0.2), blurRadius: 15, offset: const Offset(0, 8))],
+        boxShadow: [
+          BoxShadow(
+              color: Colors.blueAccent.withOpacity(0.2),
+              blurRadius: 15,
+              offset: const Offset(0, 8)
+          )
+        ],
       ),
       child: Column(
         children: [
           const Text("사용 가능한 연차", style: TextStyle(color: Colors.white70, fontSize: 16)),
           const SizedBox(height: 8),
-          // ★ total도 formatNum을 써서 2.25가 2.3으로 반올림되지 않게 표시
-          Text("${remaining.toStringAsFixed(2)} / ${formatNum(total)}",
-              style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)),
+          // 🎯 포맷팅된 숫자 적용 (remaining과 total 둘 다 적용)
+          Text(
+              "${formatNum(remaining)} / ${formatNum(total)}",
+              style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)
+          ),
           const SizedBox(height: 16),
           LinearProgressIndicator(
             value: total > 0 ? (remaining / total).clamp(0.0, 1.0) : 0,
@@ -459,7 +467,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         'action': 'TEMPLATE',
         'text': '[$type]',
         'dates': dateParam,
-        'details': 'LeaveSync 앱에서 등록된 $type 일정입니다.',
+        'details': '연차매니저 앱에서 등록된 $type 일정입니다.',
       },
     );
 
