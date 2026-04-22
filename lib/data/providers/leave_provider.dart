@@ -9,6 +9,10 @@ final leaveStateProvider = StateNotifierProvider<LeaveNotifier, UserSetting?>((r
   return LeaveNotifier();
 });
 
+final holidayListProvider = AsyncNotifierProvider<HolidayListNotifier, List<Map<String, dynamic>>>(() {
+  return HolidayListNotifier();
+});
+
 class LeaveNotifier extends StateNotifier<UserSetting?> {
   LeaveNotifier() : super(null) {
     _init();
@@ -21,19 +25,24 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
     }
   }
 
-  // 입사일 기준 법정 연차 계산 (근로기준법)
   double calculateByEntryDate(DateTime entryDate) {
     final now = DateTime.now();
-    int years = now.year - entryDate.year;
-    if (now.month < entryDate.month || (now.month == entryDate.month && now.day < entryDate.day)) {
-      years--;
+
+    // 1. 전체 근속 개월 수 계산
+    int totalMonths = (now.year - entryDate.year) * 12 + now.month - entryDate.month;
+
+    // 아직 해당 월의 입사일이 지나지 않았으면 한 달을 다 채운 게 아님
+    if (now.day < entryDate.day) {
+      totalMonths--;
     }
 
-    if (years < 1) {
-      int months = (now.year - entryDate.year) * 12 + now.month - entryDate.month;
-      if (now.day < entryDate.day) months--;
-      return months.clamp(0, 11).toDouble();
+    // 2. 1년 미만인지 확인 (근속 12개월 미만)
+    if (totalMonths < 12) {
+      // 1개월 개근 시 1개씩 발생 (최대 11개)
+      return totalMonths.clamp(0, 11).toDouble();
     } else {
+      // 3. 1년 이상자 로직 (기존 로직 유지)
+      int years = (totalMonths ~/ 12);
       int extra = (years - 1) ~/ 2;
       return (15.0 + extra).clamp(15.0, 25.0);
     }
@@ -50,5 +59,63 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
     );
     await box.put(0, setting);
     state = setting;
+  }
+}
+
+class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
+  @override
+  Future<List<Map<String, dynamic>>> build() async {
+    // build는 처음 이 프로바이더가 호출될 때 실행됩니다.
+    return _fetchCalendarData();
+  }
+
+  // ★ 중요: 이 함수가 반드시 클래스 중괄호 { } 안에 있어야 ref를 사용할 수 있습니다.
+  Future<List<Map<String, dynamic>>> _fetchCalendarData() async {
+    final service = ref.read(calendarServiceProvider);
+    final settings = ref.read(leaveStateProvider);
+
+    if (settings == null) return [];
+
+    var account = await service.signInSilently() ?? await service.signIn();
+    if (account == null) return [];
+
+    // 1. 구글 캘린더에서 전체 데이터를 가져옴
+    final result = await service.calculateUsedLeave(account, settings.resetDate);
+
+    // 2. 초기화 날짜(resetDate)를 기준으로 필터링
+    final List<Map<String, dynamic>> allEvents = List.from(result.events);
+    final DateTime resetDate = settings.resetDate;
+
+    final List<Map<String, dynamic>> filteredEvents = allEvents.where((event) {
+      final dynamic dateValue = event['date'];
+      final DateTime eventDate = dateValue is DateTime
+          ? dateValue
+          : DateTime.parse(dateValue.toString());
+
+      return eventDate.isBefore(resetDate);
+    }).toList();
+
+    // 3. 필터링된 리스트 정렬
+    final today = DateTime.now();
+    final todayStart = DateTime(today.year, today.month, today.day);
+
+    filteredEvents.sort((a, b) {
+      final dateA = a['date'] is DateTime ? a['date'] : DateTime.parse(a['date'].toString());
+      final dateB = b['date'] is DateTime ? b['date'] : DateTime.parse(b['date'].toString());
+      final dayA = DateTime(dateA.year, dateA.month, dateA.day);
+      final dayB = DateTime(dateB.year, dateB.month, dateB.day);
+
+      bool isPastA = dayA.isBefore(todayStart);
+      bool isPastB = dayB.isBefore(todayStart);
+
+      if (isPastA != isPastB) return isPastA ? 1 : -1;
+      return isPastA ? dateB.compareTo(dateA) : dateA.compareTo(dateB);
+    });
+
+    return filteredEvents;
+  }
+
+  Future<void> refresh() async {
+    state = await AsyncValue.guard(() => _fetchCalendarData());
   }
 }
