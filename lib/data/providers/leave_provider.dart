@@ -79,29 +79,35 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     var account = await service.signInSilently() ?? await service.signIn();
     if (account == null) return [];
 
-    // 1. 구글 캘린더에서 전체 데이터를 가져옴
     final result = await service.calculateUsedLeave(account, settings.resetDate);
-
-    // 2. 초기화 날짜(resetDate)를 기준으로 필터링
     final List<Map<String, dynamic>> allEvents = List.from(result.events);
-    final DateTime resetDate = settings.resetDate;
 
     final List<Map<String, dynamic>> filteredEvents = allEvents.where((event) {
       final dynamic dateValue = event['date'];
-      final DateTime eventDate = dateValue is DateTime
+      final DateTime fullDate = (dateValue is DateTime
           ? dateValue
-          : DateTime.parse(dateValue.toString());
+          : DateTime.parse(dateValue.toString())).toLocal();
 
-      return eventDate.isBefore(resetDate);
+      // 날짜만 비교하기 위해 시간 초기화
+      final DateTime eventDateOnly = DateTime(fullDate.year, fullDate.month, fullDate.day);
+
+      final DateTime r = settings.resetDate.toLocal();
+      // 초기화 날짜인 5월 16일 '당일'까지는 리스트에 나오게 하고 싶다면:
+      final DateTime resetLimit = DateTime(r.year, r.month, r.day);
+
+      // ✅ 수정: isBefore(resetLimit) 대신
+      // 'resetLimit'과 같거나 이전이면 true (!isAfter)
+      return !eventDateOnly.isAfter(resetLimit);
     }).toList();
 
-    // 3. 필터링된 리스트 정렬
+    // 3. 필터링된 리스트 정렬 (오늘 기준 과거/미래)
     final today = DateTime.now();
     final todayStart = DateTime(today.year, today.month, today.day);
 
     filteredEvents.sort((a, b) {
       final dateA = a['date'] is DateTime ? a['date'] : DateTime.parse(a['date'].toString());
       final dateB = b['date'] is DateTime ? b['date'] : DateTime.parse(b['date'].toString());
+
       final dayA = DateTime(dateA.year, dateA.month, dateA.day);
       final dayB = DateTime(dateB.year, dateB.month, dateB.day);
 

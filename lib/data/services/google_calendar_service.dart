@@ -1,6 +1,6 @@
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:googleapis/calendar/v3.dart'; // 별칭(as) 없이 임포트
+import 'package:googleapis/calendar/v3.dart';
 import 'package:flutter/material.dart';
 
 // 결과값을 담을 모델 클래스
@@ -23,26 +23,26 @@ class GoogleCalendarService {
     final httpClient = await _googleSignIn.authenticatedClient();
     if (httpClient == null) return LeaveResult(0.0, []);
 
-    // 1. 클래스명(CalendarApi)과 겹치지 않게 변수명을 'api'로 설정
     final api = CalendarApi(httpClient);
     final now = DateTime.now();
 
+    // 1. 검색 주기 설정 (연차 초기화 날짜 기준)
     DateTime periodStart = DateTime(now.year, resetDate.month, resetDate.day);
     if (periodStart.isAfter(now)) {
       periodStart = DateTime(now.year - 1, resetDate.month, resetDate.day);
     }
-    final periodEnd = periodStart.add(const Duration(days: 365));
+    // 넉넉하게 1년치 범위를 잡음 (다음 초기화 전날까지)
+    final periodEnd = periodStart.add(const Duration(days: 366));
 
     final timeMin = periodStart.toUtc();
     final timeMax = periodEnd.toUtc();
 
-    debugPrint("🔎 검색 주기: $timeMin ~ $timeMax");
+    debugPrint("🔎 검색 주기(UTC): $timeMin ~ $timeMax");
 
     try {
-      // 2. 공휴일 데이터 가져오기 (매개변수로 api 전달)
+      // 2. 공휴일 정보 미리 가져오기 (차감 계산 시 제외 목적)
       final Set<DateTime> publicHolidays = await _getPublicHolidays(api, timeMin, timeMax);
 
-      // 3. 내 기본 캘린더 일정 가져오기
       final events = await api.events.list(
         'primary',
         timeMin: timeMin,
@@ -62,41 +62,61 @@ class GoogleCalendarService {
           final title = event.summary ?? "";
           final cleanTitle = title.replaceAll(' ', '');
 
-          double dayScore = 0.0;
-          if (cleanTitle.contains('연차')) {
-            dayScore = 1.0;
+          double weight = 0.0;
+
+          if (cleanTitle.contains('반반차')) {
+            weight = 0.25;
           } else if (cleanTitle.contains('반차')) {
-            dayScore = 0.5;
-          } else if (cleanTitle.contains('반반차')) {
-            dayScore = 0.25;
+            weight = 0.5;
+          } else if (cleanTitle.contains('연차')) {
+            weight = 1.0;
           }
 
-          if (dayScore > 0) {
+          // 제목에 키워드가 포함된 경우만 계산 시작
+          if (weight > 0) {
+            // 1. 날짜 데이터 추출 (시간 정보 제거하고 날짜만 남김)
             DateTime start = (event.start?.date ?? event.start?.dateTime ?? now).toLocal();
             DateTime end = (event.end?.date ?? event.end?.dateTime ?? now).toLocal();
 
-            double eventDeduction = 0.0;
             DateTime tempDate = DateTime(start.year, start.month, start.day);
+            DateTime endDate = DateTime(end.year, end.month, end.day);
 
-            while (tempDate.isBefore(end)) {
+            // 구글 종일 일정(All-day)은 종료일이 다음날 00:00으로 오므로 하루를 빼줌
+            if (event.start?.date != null) {
+              endDate = endDate.subtract(const Duration(days: 1));
+            }
+
+            double eventDeduction = 0.0;
+
+            // 2. 시작일부터 종료일까지 '날짜' 단위로 루프
+            while (!tempDate.isAfter(endDate)) {
               bool isWeekend = tempDate.weekday == DateTime.saturday || tempDate.weekday == DateTime.sunday;
-
-              // 공휴일 체크 로직
               bool isPublicHoliday = publicHolidays.any((h) =>
               h.year == tempDate.year && h.month == tempDate.month && h.day == tempDate.day);
 
+              // 주말/공휴일이 아닐 때만 가중치(0.25, 0.5 등) 누적
               if (!isWeekend && !isPublicHoliday) {
-                eventDeduction += dayScore;
+                eventDeduction += weight;
               }
+
+              // 다음날로 이동
               tempDate = tempDate.add(const Duration(days: 1));
             }
 
             if (eventDeduction > 0) {
               totalUsed += eventDeduction;
+
+              final DateTime finalDate = (event.start?.date != null)
+                  ? DateTime.parse(event.start!.date!.toString())
+                  : (event.start?.dateTime ?? now);
+
               detectedEvents.add({
                 'id': event.id,
                 'title': title,
-                'date': event.start?.date ?? event.start?.dateTime,
+                'date': finalDate,
+                'endDate': (event.end?.date != null)
+                    ? DateTime.parse(event.end!.date!.toString()).subtract(const Duration(days: 1))
+                    : (event.end?.dateTime ?? now),
                 'deduction': eventDeduction,
               });
             }
@@ -110,7 +130,7 @@ class GoogleCalendarService {
     }
   }
 
-  // 4. 파라미터 타입을 CalendarApi로 정확히 명시
+  // 공휴일 캘린더에서 데이터 가져오는 헬퍼 함수
   Future<Set<DateTime>> _getPublicHolidays(CalendarApi api, DateTime start, DateTime end) async {
     final Set<DateTime> holidays = {};
     try {
@@ -124,7 +144,9 @@ class GoogleCalendarService {
       if (holidayEvents.items != null) {
         for (var holiday in holidayEvents.items!) {
           if (holiday.start?.date != null) {
-            holidays.add(DateTime.parse(holiday.start!.date!.toString()));
+            // "2026-05-05" 형태의 문자열을 DateTime으로 파싱
+            DateTime holidayDate = DateTime.parse(holiday.start!.date!.toString());
+            holidays.add(DateTime(holidayDate.year, holidayDate.month, holidayDate.day));
           }
         }
       }

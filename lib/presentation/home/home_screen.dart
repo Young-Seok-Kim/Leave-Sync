@@ -244,15 +244,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   Widget _buildEventTile(Map<String, dynamic> event) {
+    // 시작일 데이터 처리
     final dynamic dateValue = event['date'];
-    final DateTime eventDate = dateValue is DateTime ? dateValue : DateTime.parse(dateValue.toString());
+    final DateTime startDate = dateValue is DateTime
+        ? dateValue
+        : DateTime.parse(dateValue.toString());
+
+    // 종료일 데이터 처리 (Service에서 endDate를 넘겨준다고 가정)
+    final dynamic endDateValue = event['endDate'];
+    DateTime? endDate;
+    if (endDateValue != null) {
+      endDate = endDateValue is DateTime
+          ? endDateValue
+          : DateTime.parse(endDateValue.toString());
+
+      // 구글 종일 일정 특성 보정: 종료일이 다음날 00:00이면 사용자 체감상 전날로 표시
+      if (endDate.hour == 0 && endDate.minute == 0) {
+        endDate = endDate.subtract(const Duration(days: 1));
+      }
+    }
+
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
-    final eventDay = DateTime(eventDate.year, eventDate.month, eventDate.day);
+    final eventDay = DateTime(startDate.year, startDate.month, startDate.day);
 
     final bool isPast = eventDay.isBefore(todayStart);
     final bool isToday = DateUtils.isSameDay(eventDay, now);
-    String dateStr = "${eventDate.year}.${eventDate.month.toString().padLeft(2, '0')}.${eventDate.day.toString().padLeft(2, '0')}";
+
+    // 날짜 문자열 생성 (기본: yyyy.MM.dd)
+    String dateStr = "${startDate.year}.${startDate.month.toString().padLeft(2, '0')}.${startDate.day.toString().padLeft(2, '0')}";
+
+    // 만약 종료일이 있고 시작일과 다른 날이라면 범위를 표시 (예: ~ 05.15)
+    if (endDate != null && !DateUtils.isSameDay(startDate, endDate)) {
+      dateStr += " ~ ${endDate.month.toString().padLeft(2, '0')}.${endDate.day.toString().padLeft(2, '0')}";
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -301,7 +326,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       ),
     );
   }
-
   Widget _buildGuideOverlay() {
     return Container(
       color: Colors.black.withOpacity(0.85),
