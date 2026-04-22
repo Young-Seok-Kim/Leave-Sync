@@ -72,34 +72,34 @@ class GoogleCalendarService {
             weight = 1.0;
           }
 
-          // 제목에 키워드가 포함된 경우만 계산 시작
           if (weight > 0) {
-            // 1. 날짜 데이터 추출 (시간 정보 제거하고 날짜만 남김)
             DateTime start = (event.start?.date ?? event.start?.dateTime ?? now).toLocal();
             DateTime end = (event.end?.date ?? event.end?.dateTime ?? now).toLocal();
 
+            // 시간을 완전히 제거하고 '날짜' 정보만 남깁니다. (중요)
             DateTime tempDate = DateTime(start.year, start.month, start.day);
             DateTime endDate = DateTime(end.year, end.month, end.day);
 
-            // 구글 종일 일정(All-day)은 종료일이 다음날 00:00으로 오므로 하루를 빼줌
-            if (event.start?.date != null) {
+            // 구글 종일 일정(All-day)은 종료일이 다음날 00:00으로 오므로,
+            // 시작일과 종료일이 다른 '진짜 여러 날짜'인 경우에만 종료일 보정을 수행합니다.
+            if (event.start?.date != null && endDate.isAfter(tempDate)) {
               endDate = endDate.subtract(const Duration(days: 1));
             }
 
             double eventDeduction = 0.0;
 
-            // 2. 시작일부터 종료일까지 '날짜' 단위로 루프
+            // 시작일부터 종료일까지 포함해서 루프를 돕니다.
             while (!tempDate.isAfter(endDate)) {
               bool isWeekend = tempDate.weekday == DateTime.saturday || tempDate.weekday == DateTime.sunday;
-              bool isPublicHoliday = publicHolidays.any((h) =>
-              h.year == tempDate.year && h.month == tempDate.month && h.day == tempDate.day);
 
-              // 주말/공휴일이 아닐 때만 가중치(0.25, 0.5 등) 누적
+              String dateKey = "${tempDate.year}-${tempDate.month.toString().padLeft(2, '0')}-${tempDate.day.toString().padLeft(2, '0')}";
+              bool isPublicHoliday = publicHolidays.contains(dateKey);
+
+              // 주말과 공휴일 체크는 유지
               if (!isWeekend && !isPublicHoliday) {
                 eventDeduction += weight;
               }
 
-              // 다음날로 이동
               tempDate = tempDate.add(const Duration(days: 1));
             }
 
@@ -114,6 +114,7 @@ class GoogleCalendarService {
                 'id': event.id,
                 'title': title,
                 'date': finalDate,
+                // 종료일 표시 로직 수정
                 'endDate': (event.end?.date != null)
                     ? DateTime.parse(event.end!.date!.toString()).subtract(const Duration(days: 1))
                     : (event.end?.dateTime ?? now),
