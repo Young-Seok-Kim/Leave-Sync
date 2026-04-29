@@ -2,7 +2,7 @@ name: leavesync
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.5+6
+version: 1.0.6+7
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -26,6 +26,7 @@ dependencies:
   # 👈 실행 시 No implementation found 에러 방지를 위해 위로 이동
   shared_preferences: ^2.2.0
   url_launcher: ^6.3.2
+  flutter_dotenv: ^5.1.0
 
 dev_dependencies:
   flutter_test:
@@ -37,6 +38,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # 2. flutter 섹션 바로 아래에 맞춰야 합니다
+  assets:
+    - .env
+    - assets/images/app_icon.png
 
 flutter_launcher_icons:
   android: "launcher_icon"

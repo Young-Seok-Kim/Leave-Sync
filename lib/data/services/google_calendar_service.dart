@@ -2,6 +2,7 @@ import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sig
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/calendar/v3.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // 결과값을 담을 모델 클래스
 class LeaveResult {
@@ -12,6 +13,7 @@ class LeaveResult {
 
 class GoogleCalendarService {
   final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId: dotenv.env['GOOGLE_WEB_CLIENT_ID'],
     scopes: [CalendarApi.calendarEventsReadonlyScope],
   );
 
