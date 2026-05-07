@@ -21,7 +21,7 @@ class GoogleCalendarService {
   Future<GoogleSignInAccount?> signInSilently() async => await _googleSignIn.signInSilently();
   Future<void> signOut() async => await _googleSignIn.signOut();
 
-  Future<LeaveResult> calculateUsedLeave(GoogleSignInAccount account, DateTime resetDate) async {
+  Future<LeaveResult> calculateUsedLeave(GoogleSignInAccount account, DateTime resetDate, {DateTime? entryDate}) async {
     final httpClient = await _googleSignIn.authenticatedClient();
     if (httpClient == null) return LeaveResult(0.0, []);
 
@@ -36,8 +36,9 @@ class GoogleCalendarService {
     // 넉넉하게 1년치 범위를 잡음 (다음 초기화 전날까지)
     final periodEnd = periodStart.add(const Duration(days: 366));
 
-    final timeMin = periodStart.toUtc();
-    final timeMax = periodEnd.toUtc();
+    final timeMin = (entryDate ?? DateTime(2000)).toUtc();
+    // 미래: 현재로부터 10년 후까지 넉넉하게 조회하여 1년 제한 해제
+    final timeMax = now.add(const Duration(days: 3650)).toUtc();
 
     debugPrint("🔎 검색 주기(UTC): $timeMin ~ $timeMax");
 
@@ -90,19 +91,24 @@ class GoogleCalendarService {
 
             double eventDeduction = 0.0;
 
-            // 시작일부터 종료일까지 포함해서 루프를 돕니다.
-            while (!tempDate.isAfter(endDate)) {
-              bool isWeekend = tempDate.weekday == DateTime.saturday || tempDate.weekday == DateTime.sunday;
+            if (weight > 0) {
+              // 시작일부터 종료일까지 포함해서 루프를 돕니다.
+              while (!tempDate.isAfter(endDate)) {
+                bool isWeekend = tempDate.weekday == DateTime.saturday ||
+                    tempDate.weekday == DateTime.sunday;
 
-              String dateKey = "${tempDate.year}-${tempDate.month.toString().padLeft(2, '0')}-${tempDate.day.toString().padLeft(2, '0')}";
-              bool isPublicHoliday = publicHolidays.contains(dateKey);
+                String dateKey = "${tempDate.year}-${tempDate.month.toString().padLeft(2, '0')}-${tempDate.day.toString().padLeft(2, '0')}";
+                bool isPublicHoliday = publicHolidays.contains(dateKey);
 
-              // 주말과 공휴일 체크는 유지
-              if (!isWeekend && !isPublicHoliday) {
-                eventDeduction += weight;
+                // 주말과 공휴일 체크는 유지
+                if (!isWeekend && !isPublicHoliday) {
+                  if (!tempDate.isBefore(periodStart) && !tempDate.isAfter(periodEnd)) {
+                    eventDeduction += weight;
+                  }
+                }
+
+                tempDate = tempDate.add(const Duration(days: 1));
               }
-
-              tempDate = tempDate.add(const Duration(days: 1));
             }
 
             if (eventDeduction > 0) {

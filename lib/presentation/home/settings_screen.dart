@@ -24,13 +24,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _pickEntryDate() async {
+    // 현재 저장된 날짜가 미래일 경우를 대비해 initialDate를 안전하게 설정
+    DateTime initial = _entryDate ?? DateTime.now();
+    final DateTime upperLimit = DateTime(2100, 12, 31);
+
+    // initialDate는 반드시 firstDate와 lastDate 사이에 있어야 합니다.
+    if (initial.isAfter(upperLimit)) {
+      initial = DateTime.now();
+    }
+
     final picked = await showDatePicker(
       context: context,
-      initialDate: _entryDate ?? DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime.now(),
+      initialDate: initial,
+      firstDate: DateTime(1900),
+      lastDate: upperLimit, // ✅ 확실하게 미래 날짜로 박혀있는지 확인!
       helpText: "입사일을 선택하면 연차가 자동 계산됩니다",
     );
+
     if (picked != null) {
       setState(() {
         _entryDate = picked;

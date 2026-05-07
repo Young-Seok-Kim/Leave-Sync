@@ -79,25 +79,29 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     var account = await service.signInSilently() ?? await service.signIn();
     if (account == null) return [];
 
-    final result = await service.calculateUsedLeave(account, settings.resetDate);
+    final result = await service.calculateUsedLeave(account, settings.resetDate, entryDate: settings.entryDate);
     final List<Map<String, dynamic>> allEvents = List.from(result.events);
 
     final List<Map<String, dynamic>> filteredEvents = allEvents.where((event) {
-      final dynamic dateValue = event['date'];
-      final DateTime fullDate = (dateValue is DateTime
-          ? dateValue
-          : DateTime.parse(dateValue.toString())).toLocal();
+      final DateTime eventDate = (event['date'] is DateTime
+          ? event['date']
+          : DateTime.parse(event['date'].toString())).toLocal();
+      final DateTime eventDateOnly = DateTime(eventDate.year, eventDate.month, eventDate.day);
 
-      // 날짜만 비교하기 위해 시간 초기화
-      final DateTime eventDateOnly = DateTime(fullDate.year, fullDate.month, fullDate.day);
+      final now = DateTime.now();
+      final r = settings.resetDate.toLocal();
 
-      final DateTime r = settings.resetDate.toLocal();
-      // 초기화 날짜인 5월 16일 '당일'까지는 리스트에 나오게 하고 싶다면:
-      final DateTime resetLimit = DateTime(r.year, r.month, r.day);
+      // 1. 이번 주기의 시작일(periodStart) 계산
+      DateTime periodStart = DateTime(now.year, r.month, r.day);
+      if (periodStart.isAfter(now)) {
+        periodStart = DateTime(now.year - 1, r.month, r.day);
+      }
 
-      // ✅ 수정: isBefore(resetLimit) 대신
-      // 'resetLimit'과 같거나 이전이면 true (!isAfter)
-      return !eventDateOnly.isAfter(resetLimit);
+      // 2. 이번 주기의 종료일(periodEnd) 계산
+      final DateTime periodEnd = DateTime(periodStart.year + 1, r.month, r.day).subtract(const Duration(days: 1));
+
+      // ✅ 시작일보다 같거나 크고, 종료일보다 같거나 작을 때만 포함
+      return !eventDateOnly.isBefore(periodStart) && !eventDateOnly.isAfter(periodEnd);
     }).toList();
 
     // 3. 필터링된 리스트 정렬 (오늘 기준 과거/미래)

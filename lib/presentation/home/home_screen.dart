@@ -383,8 +383,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final DateTime? pickedDate = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -428,20 +428,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   Future<void> _openGoogleCalendar(DateTime date, String type, int startH, int endH) async {
     final start = DateTime(date.year, date.month, date.day, startH);
     final end = DateTime(date.year, date.month, date.day, endH);
-    String formatTime(DateTime dt) => dt.toUtc().toIso8601String().replaceAll(RegExp(r'[-:]|\.\d+'), '');
+
+    // 날짜 포맷 (UTC 기준 ISO8601, 특수기호 제거)
+    String formatTime(DateTime dt) =>
+        dt.toUtc().toIso8601String().replaceAll(RegExp(r'[-:]|\.\d+'), '');
+
     final String dateParam = "${formatTime(start)}/${formatTime(end)}";
 
+    // ✅ 가장 범용적으로 앱 등록 화면을 띄워주는 URL 패턴
     final Uri uri = Uri.parse("https://www.google.com/calendar/render").replace(
       queryParameters: {
         'action': 'TEMPLATE',
         'text': '[$type]',
         'dates': dateParam,
         'details': '연차매니저 앱에서 등록된 $type 일정입니다.',
+        'sf': 'true', // Show Form (등록 폼을 강제로 보여줌)
+        'output': 'xml', // 앱 딥링크 처리 시 인식이 더 잘 되는 구형 파라미터
       },
     );
 
     if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      await launchUrl(
+        uri,
+        // ✅ 'externalApplication'으로 먼저 테스트해보세요.
+        // 일부 기기에서는 'externalNonBrowserApplication'이 앱 내부의 특정 Activity를 못 찾을 수 있습니다.
+        mode: LaunchMode.externalApplication,
+      );
     }
   }
 
