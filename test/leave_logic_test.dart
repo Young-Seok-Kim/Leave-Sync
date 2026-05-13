@@ -22,16 +22,16 @@ void main() {
   });
 
   group('연차 자동 증분 로직 테스트', () {
-    test('1년치 연차 증분 시뮬레이션 로그', () async {
+    test('향후 5년치 연차 변화 시뮬레이션', () async {
       final box = Hive.box<UserSetting>('settings');
       final entryDate = DateTime(2026, 4, 13);
 
       final initialState = UserSetting(
         totalLeave: 0.0,
-        resetDate: DateTime(2027, 4, 13),
+        resetDate: DateTime(2027, 4, 13), // 첫 리셋일
         entryDate: entryDate,
         lastAutoUpdate: null,
-        schemaVersion: 2, // 최신 스키마 적용
+        schemaVersion: 2,
       );
       await box.put(0, initialState);
 
@@ -39,10 +39,10 @@ void main() {
       await Future.delayed(Duration.zero);
       notifier.state = initialState;
 
-      print('\n--- [연차 시뮬레이션 시작] ---');
+      print('\n--- [향후 5년 시뮬레이션 시작] ---');
 
-      // 4월 13일부터 1년 동안 매일 체크
-      for (int i = 0; i <= 365; i++) {
+      // 5년(365일 * 5 + 윤달 고려) 동안 매일 체크
+      for (int i = 0; i <= 3000; i++) {
         final mockDate = entryDate.add(Duration(days: i));
         final oldLeave = notifier.state!.totalLeave;
 
@@ -50,8 +50,7 @@ void main() {
 
         final newLeave = notifier.state!.totalLeave;
 
-        print('테스트 : ${mockDate.toString().split(' ')[0]} | 연차: $oldLeave -> $newLeave');
-        // 연차가 변했을 때만 로그 출력
+        // 연차가 변했을 때만 로그 출력 (증분 혹은 리셋)
         if (oldLeave != newLeave) {
           print('날짜: ${mockDate.toString().split(' ')[0]} | 연차: $oldLeave -> $newLeave');
         }

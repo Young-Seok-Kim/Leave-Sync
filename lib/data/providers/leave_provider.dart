@@ -94,9 +94,12 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
 
     // 1. [리셋 로직]
     if (!now.isBefore(reset)) {
-      final newTotal = _calculateFullLegalLeave(entry);
+      // ★ 시뮬레이션 중인 'now'를 계산 함수에 전달
+      final newTotal = _calculateFullLegalLeave(entry, now: now);
       final nextReset = DateTime(reset.year + 1, reset.month, reset.day);
-      saveSettings(newTotal, nextReset, entry, updateLastUpdate: true);
+
+      // ★ 저장 시점도 'now'로 기록해야 무한 루프 안 도미
+      saveSettings(newTotal, nextReset, entry, updateLastUpdate: true, mockDate: now);
       return;
     }
 
@@ -132,23 +135,25 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
       double total,
       DateTime reset,
       DateTime? entry,
-      {bool updateLastUpdate = true} // 기본값을 true로 두어 저장 시점 기록
+      {bool updateLastUpdate = true,
+        DateTime? mockDate} // ★ 시뮬레이션을 위한 mockDate 추가
       ) async {
-    final now = DateTime.now();
+    final now = mockDate ?? DateTime.now(); // 실제 오늘 대신 주입된 날짜 사용
     final setting = UserSetting(
-        totalLeave: total,
-        resetDate: reset,
-        entryDate: entry,
-        isFirstRun: false,
-        lastAutoUpdate: updateLastUpdate ? now : state?.lastAutoUpdate
+      totalLeave: total,
+      resetDate: reset,
+      entryDate: entry,
+      isFirstRun: false,
+      lastAutoUpdate: updateLastUpdate ? now : state?.lastAutoUpdate,
+      schemaVersion: _currentSchemaVersion, // 저장 시 스키마 버전 명시
     );
     await _saveState(setting);
   }
+  double _calculateFullLegalLeave(DateTime entryDate, {DateTime? now}) {
+    final referenceDate = now ?? DateTime.now(); // 주입된 날짜가 없으면 실제 오늘 사용
 
-  double _calculateFullLegalLeave(DateTime entryDate) {
-    final now = DateTime.now();
-    int totalMonths = (now.year - entryDate.year) * 12 + now.month - entryDate.month;
-    if (now.day < entryDate.day) totalMonths--;
+    int totalMonths = (referenceDate.year - entryDate.year) * 12 + referenceDate.month - entryDate.month;
+    if (referenceDate.day < entryDate.day) totalMonths--;
 
     if (totalMonths < 12) {
       return totalMonths.clamp(0, 11).toDouble();
