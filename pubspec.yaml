@@ -2,9 +2,9 @@ name: leavesync
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.7+8
-# 2026. 5. 7
-# 일정 생성시 구글 캘린더로 우선적으로 열리도록 수정 일정 등록시 아무날짜나 등록 가능하도록 수정
+version: 1.0.8+9
+# 2026. 5. 13
+# 월이 지나면 연차가 자동 증분됩니다.
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -37,6 +37,7 @@ dev_dependencies:
   flutter_lints: ^3.0.0
   build_runner: ^2.4.13
   hive_generator: ^2.0.1
+  hive_test: ^1.0.1
 
 flutter:
   uses-material-design: true

@@ -21,13 +21,14 @@ class UserSettingAdapter extends TypeAdapter<UserSetting> {
       resetDate: fields[1] as DateTime,
       isFirstRun: fields[2] as bool,
       entryDate: fields[3] as DateTime?,
+      lastAutoUpdate: fields[4] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, UserSetting obj) {
     writer
-      ..writeByte(4)
+      ..writeByte(5)
       ..writeByte(0)
       ..write(obj.totalLeave)
       ..writeByte(1)
@@ -35,7 +36,9 @@ class UserSettingAdapter extends TypeAdapter<UserSetting> {
       ..writeByte(2)
       ..write(obj.isFirstRun)
       ..writeByte(3)
-      ..write(obj.entryDate);
+      ..write(obj.entryDate)
+      ..writeByte(4)
+      ..write(obj.lastAutoUpdate);
   }
 
   @override
