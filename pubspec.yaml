@@ -2,7 +2,7 @@ name: leavesync
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.8+9
+version: 1.0.9+10
 # 2026. 5. 13
 # 월이 지나면 연차가 자동 증분됩니다.
 
