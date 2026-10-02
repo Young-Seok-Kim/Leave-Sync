@@ -45,6 +45,13 @@ android {
     }
 
     buildTypes {
+        // Android Studio Run(디버그 빌드)도 release 키로 서명해서,
+        // 폰에 설치된 release 빌드 위에 서명 불일치 없이 바로 덮어쓸 수 있게 함
+        debug {
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             signingConfig = signingConfigs.getByName("release")
 
