@@ -11,7 +11,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # pubspec.yaml 의 version 이 바뀐 푸시에서만 배포 (같은 versionCode 는 Play 가 거부함)
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.ver.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: 버전 변경 여부 확인
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "수동 실행: 배포 진행"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          before=$(git show HEAD^:pubspec.yaml 2>/dev/null | grep -E '^version:' || true)
+          after=$(grep -E '^version:' pubspec.yaml)
+          echo "이전: ${before:-없음} / 현재: $after"
+          if [ "$before" != "$after" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pubspec 버전이 바뀌지 않아 배포를 건너뜁니다."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
   deploy:
+    needs: check
+    if: needs.check.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,3 +107,5 @@ jobs:
           track: ${{ vars.PLAY_TRACK || 'internal' }}
           status: completed
           mappingFile: build/app/outputs/mapping/release/mapping.txt
+          # 스토어 "새로운 기능" 문구: 배포 전에 이 폴더의 whatsnew-ko-KR 을 수정할 것
+          whatsNewDirectory: distribution/whatsnew
