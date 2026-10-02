@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 이하 자동 백업 규칙: Hive 설정(app_flutter)과 SharedPreferences 를 Google 계정에 백업 -->
+<full-backup-content>
+    <include domain="root" path="app_flutter/" />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

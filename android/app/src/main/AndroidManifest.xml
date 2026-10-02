@@ -12,7 +12,10 @@
     <application
         android:label="연차매니저"
         android:name="${applicationName}"
-        android:icon="@mipmap/launcher_icon">
+        android:icon="@mipmap/launcher_icon"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules">
 
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
