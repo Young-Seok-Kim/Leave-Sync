@@ -101,6 +101,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final holidayAsync = ref.watch(holidayListProvider);
 
     final total = settings?.totalLeave ?? 15.0;
+    final DateTime? resetDate = settings?.resetDate;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F7),
@@ -130,7 +131,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
           return Stack(
             children: [
-              _buildMainContent(total, remaining, events),
+              _buildMainContent(total, remaining, events, resetDate),
               if (_showGuide) _buildGuideOverlay(),
 
               // [선택 사항] 백그라운드 로딩 중임을 작게 표시하고 싶을 때
@@ -166,7 +167,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  Widget _buildMainContent(double total, double remaining, List<Map<String, dynamic>> events) {
+  String _fmtDate(DateTime d) =>
+      "${d.year}.${d.month.toString().padLeft(2, '0')}.${d.day.toString().padLeft(2, '0')}";
+
+  /// 다음 초기화일까지 남은 일수 텍스트 (오늘이면 "오늘", 지났으면 빈 문자열)
+  String _dDayText(DateTime reset) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(reset.year, reset.month, reset.day);
+    final diff = target.difference(today).inDays;
+    if (diff == 0) return "오늘";
+    if (diff < 0) return "";
+    return "D-$diff";
+  }
+
+  /// 초기화일까지 남은 개월 수 (이번 달 포함, 최소 1)
+  int _monthsLeft(DateTime reset) {
+    final now = DateTime.now();
+    final months = (reset.year - now.year) * 12 + (reset.month - now.month) + 1;
+    return months < 1 ? 1 : months;
+  }
+
+  /// 남은 연차를 남은 개월 수로 나눈 월 평균 (소수 첫째 자리까지)
+  double _monthlyAverage(double remaining, DateTime reset) {
+    final avg = remaining / _monthsLeft(reset);
+    return (avg * 10).floorToDouble() / 10;
+  }
+
+  Widget _buildMainContent(double total, double remaining, List<Map<String, dynamic>> events, DateTime? resetDate) {
+    // 이번 집계 주기: 지난 초기화일 ~ 다음 초기화일 전날
+    String? periodText;
+    if (resetDate != null) {
+      final r = resetDate.toLocal();
+      final start = DateTime(r.year - 1, r.month, r.day);
+      final end = DateTime(r.year, r.month, r.day).subtract(const Duration(days: 1));
+      periodText = "${_fmtDate(start)} ~ ${_fmtDate(end)}";
+    }
+
     return RefreshIndicator(
       onRefresh: () => ref.read(holidayListProvider.notifier).refresh(),
       child: CustomScrollView(
@@ -175,9 +212,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
             padding: const EdgeInsets.all(20.0),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                _buildDashboardCard(total, remaining),
+                _buildDashboardCard(total, remaining, resetDate),
                 const SizedBox(height: 32),
-                const Text("상세 사용 내역", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text("상세 사용 내역", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const Spacer(),
+                    if (periodText != null)
+                      Text(
+                        periodText,
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 16),
               ]),
             ),
@@ -204,7 +252,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  Widget _buildDashboardCard(double total, double remaining) {
+  Widget _buildDashboardCard(double total, double remaining, DateTime? resetDate) {
     String formatNum(double n) {
       if (n == n.toInt()) return n.toInt().toString();
       return n.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
@@ -238,6 +286,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
             valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
             minHeight: 8,
           ),
+          if (resetDate != null) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Icon(Icons.event_repeat, color: Colors.white70, size: 16),
+                const SizedBox(width: 6),
+                const Text("다음 초기화일", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const Spacer(),
+                Text(
+                  _fmtDate(resetDate.toLocal()),
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                if (_dDayText(resetDate.toLocal()).isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _dDayText(resetDate.toLocal()),
+                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.calendar_month, color: Colors.white70, size: 16),
+                const SizedBox(width: 6),
+                const Text("월 평균 사용 가능", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const Spacer(),
+                Text(
+                  "${formatNum(_monthlyAverage(remaining, resetDate.toLocal()))}개",
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  "(${_monthsLeft(resetDate.toLocal())}개월 남음)",
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
