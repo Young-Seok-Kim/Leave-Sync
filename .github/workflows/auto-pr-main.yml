@@ -1,0 +1,52 @@
+name: main_qa -> main 자동 PR
+
+on:
+  push:
+    branches: [main_qa]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: main 대비 변경 커밋 수집
+        id: commits
+        run: |
+          git fetch origin main
+          {
+            echo "list<<EOF_COMMITS"
+            git log origin/main..HEAD --no-merges --pretty='- %s (%h)'
+            echo "EOF_COMMITS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: PR 생성 또는 본문 갱신
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMITS: ${{ steps.commits.outputs.list }}
+        run: |
+          if [ -z "$(echo "$COMMITS" | tr -d '[:space:]')" ]; then
+            echo "main 대비 새 커밋이 없어 PR을 만들지 않습니다."
+            exit 0
+          fi
+
+          body=$(printf '## 변경 사항\n\n%s\n\n---\nmain_qa 브랜치 푸시 시 자동 생성된 PR입니다.' "$COMMITS")
+
+          existing=$(gh pr list --head main_qa --base main --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body "$body"
+            echo "기존 PR #$existing 본문을 갱신했습니다."
+          else
+            gh pr create \
+              --head main_qa \
+              --base main \
+              --title "[QA] main_qa -> main 머지" \
+              --body "$body"
+            echo "새 PR을 생성했습니다."
+          fi

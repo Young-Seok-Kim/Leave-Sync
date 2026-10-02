@@ -2,7 +2,7 @@ name: leavesync
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.9+10
+version: 1.0.10+11
 # 2026. 5. 13
 # 월이 지나면 연차가 자동 증분됩니다.
 
@@ -24,7 +24,7 @@ dependencies:
   googleapis_auth: ^1.6.0
   extension_google_sign_in_as_googleapis_auth: ^2.0.12
   # SDK 내부의 flutter_localizations와 충돌 안 나게 고정
-  intl: ^0.19.0
+  intl: ^0.20.2
   # 👈 실행 시 No implementation found 에러 방지를 위해 위로 이동
   shared_preferences: ^2.2.0
   url_launcher: ^6.3.2
