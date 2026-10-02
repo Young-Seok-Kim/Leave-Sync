@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 이상 자동 백업 / 기기 간 전송 규칙: 입사일 등 설정이 재설치 시 복원되도록 함 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="root" path="app_flutter/" />
+        <include domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="root" path="app_flutter/" />
+        <include domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>
