@@ -414,7 +414,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           ],
         ),
         subtitle: Text(
-          isUpcoming ? "$dateStr · $daysLeft일 남음" : dateStr,
+          isUpcoming ? "$dateStr (D-$daysLeft일)" : dateStr,
           style: TextStyle(color: isPast ? Colors.grey[500] : Colors.black54),
         ),
         trailing: Text(
