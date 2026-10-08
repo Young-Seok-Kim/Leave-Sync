@@ -364,7 +364,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
     final bool isPast = eventDay.isBefore(todayStart);
     final bool isToday = DateUtils.isSameDay(eventDay, now);
-    // 시작일까지 남은 일수 (미래 일정에만 D-N 배지로 표시)
+    // 시작일까지 남은 일수 (아직 지나지 않은 일정에만 날짜 옆에 표시)
     final int daysLeft = eventDay.difference(todayStart).inDays;
     final bool isUpcoming = daysLeft > 0;
 
@@ -409,19 +409,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               const Badge(
                 label: Text("오늘", style: TextStyle(fontSize: 10, color: Colors.white)),
                 backgroundColor: Color(0xFF764BA2),
-              ),
-            ] else if (isUpcoming) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF3E5F5),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  "D-$daysLeft",
-                  style: const TextStyle(fontSize: 10, color: Color(0xFF764BA2), fontWeight: FontWeight.bold),
-                ),
               ),
             ]
           ],
