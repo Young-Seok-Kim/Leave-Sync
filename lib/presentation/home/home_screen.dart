@@ -364,6 +364,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
     final bool isPast = eventDay.isBefore(todayStart);
     final bool isToday = DateUtils.isSameDay(eventDay, now);
+    // 시작일까지 남은 일수 (아직 지나지 않은 일정에만 날짜 옆에 표시)
+    final int daysLeft = eventDay.difference(todayStart).inDays;
+    final bool isUpcoming = daysLeft > 0;
 
     String dateStr = "${startDate.year}.${startDate.month.toString().padLeft(2, '0')}.${startDate.day.toString().padLeft(2, '0')}";
 
@@ -410,7 +413,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
             ]
           ],
         ),
-        subtitle: Text(dateStr, style: TextStyle(color: isPast ? Colors.grey[500] : Colors.black54)),
+        subtitle: Text(
+          isUpcoming ? "$dateStr (D-$daysLeft일)" : dateStr,
+          style: TextStyle(color: isPast ? Colors.grey[500] : Colors.black54),
+        ),
         trailing: Text(
             "-${event['deduction']}개",
             style: TextStyle(
