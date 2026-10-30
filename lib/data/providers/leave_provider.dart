@@ -1,7 +1,13 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/user_setting.dart';
 import '../services/google_calendar_service.dart';
+import '../services/notification_service.dart';
+import '../services/widget_service.dart';
 
 final calendarServiceProvider = Provider((ref) => GoogleCalendarService());
 
@@ -136,7 +142,8 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
       DateTime reset,
       DateTime? entry,
       {bool updateLastUpdate = true,
-        DateTime? mockDate} // ★ 시뮬레이션을 위한 mockDate 추가
+        DateTime? mockDate, // ★ 시뮬레이션을 위한 mockDate 추가
+        List<String>? calendarIds}
       ) async {
     final now = mockDate ?? DateTime.now(); // 실제 오늘 대신 주입된 날짜 사용
     final setting = UserSetting(
@@ -146,8 +153,15 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
       isFirstRun: false,
       lastAutoUpdate: updateLastUpdate ? now : state?.lastAutoUpdate,
       schemaVersion: _currentSchemaVersion, // 저장 시 스키마 버전 명시
+      calendarIds: calendarIds ?? state?.calendarIds,
     );
     await _saveState(setting);
+  }
+
+  /// 휴가를 읽어올 캘린더 목록만 변경
+  Future<void> saveCalendarIds(List<String> ids) async {
+    if (state == null) return;
+    await _saveState(state!.copyWith(calendarIds: ids));
   }
   double _calculateFullLegalLeave(DateTime entryDate, {DateTime? now}) {
     final referenceDate = now ?? DateTime.now(); // 주입된 날짜가 없으면 실제 오늘 사용
@@ -201,53 +215,42 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     if (settings == null) return [];
 
     var account = await service.signInSilently() ?? await service.signIn();
-    if (account == null) return [];
+    if (account == null) throw NotSignedInException();
+
+    // 예전 버전(읽기 전용)으로 로그인한 경우 일정 등록 권한을 추가로 요청
+    await service.ensureScopes();
 
     // ★ 수정: 서비스 호출 시 입사일 정보 전달
     final result = await service.calculateUsedLeave(
         account,
         settings.resetDate,
-        entryDate: settings.entryDate
+        entryDate: settings.entryDate,
+        calendarIds: settings.effectiveCalendarIds,
     );
 
     final List<Map<String, dynamic>> allEvents = List.from(result.events);
-    final now = DateTime.now();
-    final r = settings.resetDate.toLocal();
 
-    // 1. 이번 주기(Period) 계산
-    DateTime periodStart = DateTime(now.year, r.month, r.day);
-    if (periodStart.isAfter(now)) {
-      periodStart = DateTime(now.year - 1, r.month, r.day);
-    }
-    final DateTime periodEnd = DateTime(periodStart.year + 1, r.month, r.day).subtract(const Duration(days: 1));
+    // 1. 정렬 (오늘 기준 과거/미래)
+    sortLeaveEvents(allEvents);
 
-    // 2. 주기 내 필터링
-    final List<Map<String, dynamic>> filteredEvents = allEvents.where((event) {
-      final DateTime eventDate = (event['date'] is DateTime
-          ? event['date']
-          : DateTime.parse(event['date'].toString())).toLocal();
-      final DateTime eventDateOnly = DateTime(eventDate.year, eventDate.month, eventDate.day);
+    // 2. 이번 주기(초기화일 기준)의 사용량으로 홈 위젯 갱신 + 소멸 알림 재예약
+    final period = currentPeriod(settings.resetDate);
+    final cycleEvents = filterLeaveEvents(allEvents, period.start, period.end);
+    final used = cycleEvents.fold<double>(0.0, (sum, e) => sum + (e['deduction'] ?? 0.0));
+    final remaining = (settings.totalLeave - used).clamp(0.0, settings.totalLeave);
+    debugPrint("📊 동기화 완료: 전체 ${allEvents.length}건, 주기(${period.start.toIso8601String().substring(0, 10)}~${period.end.toIso8601String().substring(0, 10)}) ${cycleEvents.length}건, 사용 $used, 잔여 $remaining");
+    unawaited(WidgetService.update(
+      total: settings.totalLeave,
+      remaining: remaining,
+      resetDate: settings.resetDate,
+    ));
+    unawaited(NotificationService.instance.scheduleResetReminders(
+      remaining: remaining,
+      resetDate: settings.resetDate,
+    ));
 
-      // 시작일 전이 아니고, 종료일 후가 아닌 데이터만 (주기 내 데이터)
-      return !eventDateOnly.isBefore(periodStart) && !eventDateOnly.isAfter(periodEnd);
-    }).toList();
-
-    // 3. 정렬 (오늘 기준 과거/미래)
-    final todayStart = DateTime(now.year, now.month, now.day);
-    filteredEvents.sort((a, b) {
-      final dateA = a['date'] is DateTime ? a['date'] : DateTime.parse(a['date'].toString());
-      final dateB = b['date'] is DateTime ? b['date'] : DateTime.parse(b['date'].toString());
-      final dayA = DateTime(dateA.year, dateA.month, dateA.day);
-      final dayB = DateTime(dateB.year, dateB.month, dateB.day);
-
-      bool isPastA = dayA.isBefore(todayStart);
-      bool isPastB = dayB.isBefore(todayStart);
-
-      if (isPastA != isPastB) return isPastA ? 1 : -1;
-      return isPastA ? dateB.compareTo(dateA) : dateA.compareTo(dateB);
-    });
-
-    return filteredEvents;
+    // 전체 일정을 돌려주고, 화면에서 기간을 골라 거른다
+    return allEvents;
   }
 
   Future<void> refresh() async {
@@ -255,4 +258,64 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     ref.read(leaveStateProvider.notifier).refreshTotalLeave();
     state = await AsyncValue.guard(() => _fetchCalendarData());
   }
+
+  /// 앱에서 휴가 일정을 생성한 뒤 목록 갱신
+  Future<void> addLeave(LeaveRequest request) async {
+    final service = ref.read(calendarServiceProvider);
+    final settings = ref.read(leaveStateProvider);
+    final ids = settings?.effectiveCalendarIds ?? const ['primary'];
+    // 기본 캘린더가 선택돼 있으면 거기에, 아니면 첫 번째 선택 캘린더에 등록
+    final targetCalendar = ids.contains('primary') ? 'primary' : ids.first;
+    await service.createLeaveEvent(calendarId: targetCalendar, request: request);
+    await refresh();
+  }
+
+  /// 로그아웃 후 다시 로그인하면서 목록 갱신 (오류 화면의 "다시 로그인" 버튼용)
+  Future<void> reSignIn() async {
+    await ref.read(calendarServiceProvider).signOut();
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetchCalendarData());
+  }
+
+}
+
+DateTime leaveEventDate(Map<String, dynamic> e) =>
+    (e['date'] is DateTime ? e['date'] as DateTime : DateTime.parse(e['date'].toString())).toLocal();
+
+/// 현재 집계 주기: 지난 초기화일 ~ 다음 초기화일 전날
+({DateTime start, DateTime end}) currentPeriod(DateTime resetDate, {DateTime? now}) {
+  final n = now ?? DateTime.now();
+  final r = resetDate.toLocal();
+  DateTime start = DateTime(n.year, r.month, r.day);
+  if (start.isAfter(n)) start = DateTime(n.year - 1, r.month, r.day);
+  final end = DateTime(start.year + 1, r.month, r.day).subtract(const Duration(days: 1));
+  return (start: start, end: end);
+}
+
+/// 시작일이 [start]~[end] 안에 있는 일정만
+List<Map<String, dynamic>> filterLeaveEvents(
+    List<Map<String, dynamic>> events, DateTime start, DateTime end) {
+  final s = DateTime(start.year, start.month, start.day);
+  final e = DateTime(end.year, end.month, end.day);
+  return events.where((ev) {
+    final d = leaveEventDate(ev);
+    final day = DateTime(d.year, d.month, d.day);
+    return !day.isBefore(s) && !day.isAfter(e);
+  }).toList();
+}
+
+/// 다가오는 일정은 가까운 순으로 위에, 지난 일정은 최근 순으로 아래에
+void sortLeaveEvents(List<Map<String, dynamic>> events, {DateTime? now}) {
+  final n = now ?? DateTime.now();
+  final todayStart = DateTime(n.year, n.month, n.day);
+  events.sort((a, b) {
+    final dateA = leaveEventDate(a);
+    final dateB = leaveEventDate(b);
+    final dayA = DateTime(dateA.year, dateA.month, dateA.day);
+    final dayB = DateTime(dateB.year, dateB.month, dateB.day);
+    final isPastA = dayA.isBefore(todayStart);
+    final isPastB = dayB.isBefore(todayStart);
+    if (isPastA != isPastB) return isPastA ? 1 : -1;
+    return isPastA ? dateB.compareTo(dateA) : dateA.compareTo(dateB);
+  });
 }

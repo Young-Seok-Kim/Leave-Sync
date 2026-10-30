@@ -22,13 +22,15 @@ class UserSettingAdapter extends TypeAdapter<UserSetting> {
       isFirstRun: fields[2] as bool,
       entryDate: fields[3] as DateTime?,
       lastAutoUpdate: fields[4] as DateTime?,
+      schemaVersion: fields[5] as int?,
+      calendarIds: (fields[6] as List?)?.cast<String>(),
     );
   }
 
   @override
   void write(BinaryWriter writer, UserSetting obj) {
     writer
-      ..writeByte(5)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.totalLeave)
       ..writeByte(1)
@@ -38,7 +40,11 @@ class UserSettingAdapter extends TypeAdapter<UserSetting> {
       ..writeByte(3)
       ..write(obj.entryDate)
       ..writeByte(4)
-      ..write(obj.lastAutoUpdate);
+      ..write(obj.lastAutoUpdate)
+      ..writeByte(5)
+      ..write(obj.schemaVersion)
+      ..writeByte(6)
+      ..write(obj.calendarIds);
   }
 
   @override

@@ -1,10 +1,14 @@
 import 'dart:convert';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:leavesync/presentation/home/add_leave_sheet.dart';
+import 'package:leavesync/presentation/home/guide_dialog.dart';
+import 'package:leavesync/presentation/home/leave_detail_sheet.dart';
 import 'package:leavesync/presentation/home/settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/providers/leave_provider.dart';
+import '../../data/services/google_calendar_service.dart';
+import '../../data/services/notification_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -16,12 +20,17 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   bool _showGuide = false;
+  bool _isAddingLeave = false;
+  // 상세 사용 내역에 표시할 기간 (null 이면 현재 집계 주기)
+  DateTimeRange? _customRange;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkFirstLaunch();
+    // 알림 권한은 홈 화면에 들어온 뒤 한 번 요청 (Android 13+)
+    NotificationService.instance.requestPermission();
     // 데이터 동기화는 Provider가 알아서 build 시점에 수행합니다.
   }
 
@@ -34,12 +43,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // 0.5초 정도의 미세한 딜레이를 주면 구글 서버 반영 시간을 벌 수 있습니다.
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          ref.read(holidayListProvider.notifier).refresh();
-        }
-      });
+      // 구글 캘린더 앱에서 수정/삭제한 내용이 서버에 반영되기까지 시간이 걸리므로
+      // 돌아온 직후 한 번, 몇 초 뒤 한 번 더 새로고침합니다.
+      for (final delay in const [Duration(seconds: 1), Duration(seconds: 5)]) {
+        Future.delayed(delay, () {
+          if (mounted) ref.read(holidayListProvider.notifier).refresh();
+        });
+      }
     }
   }
 
@@ -70,7 +80,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
+              _openSettings();
             },
             child: const Text("설정하러 가기", style: TextStyle(color: Color(0xFF764BA2), fontWeight: FontWeight.bold)),
           ),
@@ -85,13 +95,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     setState(() => _showGuide = false);
   }
 
-  Future<void> _handleLogout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_first_launch', true);
-    await ref.read(calendarServiceProvider).signOut();
-
-    if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+  /// 설정 화면에서 돌아오면 (캘린더 선택이 바뀌었을 수 있으므로) 목록을 다시 읽어옴
+  Future<void> _openSettings() async {
+    final result = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+    );
+    if (!mounted) return;
+    if (result == SettingsScreen.resultLoggedOut) {
+      // 로그아웃 → 다시 로그인 창을 띄우기 위해 목록을 처음부터 다시 로드
+      setState(() => _showGuide = true);
+      ref.invalidate(holidayListProvider);
+    } else {
+      ref.read(holidayListProvider.notifier).refresh();
     }
   }
 
@@ -111,12 +127,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.redAccent),
-            onPressed: _handleLogout,
-          ),
-          IconButton(
             icon: const Icon(Icons.settings, color: Colors.grey),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen())),
+            tooltip: "설정",
+            onPressed: _openSettings,
           ),
         ],
       ),
@@ -125,17 +138,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         // skipLoadingOnRefresh: true를 주면
         // 새로고침(refresh) 중에도 로딩 화면으로 가지 않고 기존 data를 계속 보여줍니다.
         skipLoadingOnRefresh: true,
-        data: (events) {
-          final usedLeave = events.fold<double>(0.0, (sum, item) => sum + (item['deduction'] ?? 0.0));
+        data: (allEvents) {
+          // 잔여 연차는 항상 '현재 집계 주기' 기준
+          final List<Map<String, dynamic>> cycleEvents;
+          DateTimeRange? cycleRange;
+          if (resetDate != null) {
+            final p = currentPeriod(resetDate);
+            cycleRange = DateTimeRange(start: p.start, end: p.end);
+            cycleEvents = filterLeaveEvents(allEvents, p.start, p.end);
+          } else {
+            cycleEvents = allEvents;
+          }
+          final usedLeave = cycleEvents.fold<double>(0.0, (sum, item) => sum + (item['deduction'] ?? 0.0));
           final remaining = (total - usedLeave).clamp(0.0, total);
+
+          // 상세 내역은 사용자가 고른 기간(없으면 집계 주기) 기준
+          final displayRange = _customRange ?? cycleRange;
+          final displayEvents = displayRange == null
+              ? allEvents
+              : filterLeaveEvents(allEvents, displayRange.start, displayRange.end);
 
           return Stack(
             children: [
-              _buildMainContent(total, remaining, events, resetDate),
-              if (_showGuide) _buildGuideOverlay(),
+              _buildMainContent(total, remaining, allEvents, displayEvents, displayRange, cycleRange, resetDate),
+              if (_showGuide)
+                Container(
+                  color: Colors.black.withOpacity(0.85),
+                  width: double.infinity,
+                  height: double.infinity,
+                  child: Center(child: GuideCard(onClose: _closeGuide)),
+                ),
 
-              // [선택 사항] 백그라운드 로딩 중임을 작게 표시하고 싶을 때
-              if (holidayAsync.isRefreshing)
+              // 백그라운드 로딩(새로고침/등록) 중임을 작게 표시
+              if (holidayAsync.isRefreshing || _isAddingLeave)
                 const Positioned(
                   top: 10,
                   right: 10,
@@ -150,10 +185,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         },
         // 진짜 데이터가 '아예' 없을 때(맨 처음 실행 등)만 이 로딩이 돕니다.
         loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF764BA2))),
-        error: (err, stack) => Center(child: Text("동기화 오류가 발생했습니다.")),
+        error: (err, stack) => _buildErrorView(err),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showLeaveTypeSheet,
+        onPressed: _isAddingLeave ? null : _showAddLeaveSheet,
         label: const Text("연차 등록", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5)),
         icon: const Icon(Icons.add_task),
         backgroundColor: const Color(0xFF764BA2),
@@ -167,8 +202,65 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
+  /// 동기화 실패 화면: 원인에 따라 "다시 로그인" 또는 "다시 시도" 제공
+  Widget _buildErrorView(Object err) {
+    final bool needLogin = err is NotSignedInException;
+    final String message = needLogin
+        ? "구글 계정 로그인이 필요합니다.\n로그인 후 캘린더 일정을 읽어올 수 있어요."
+        : "캘린더 동기화 중 오류가 발생했습니다.\n네트워크 상태를 확인한 뒤 다시 시도해 주세요.";
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(needLogin ? Icons.account_circle_outlined : Icons.cloud_off,
+                size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black87, height: 1.5)),
+            if (!needLogin) ...[
+              const SizedBox(height: 8),
+              Text(
+                err.toString(),
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => ref.read(holidayListProvider.notifier).refresh(),
+              icon: const Icon(Icons.refresh),
+              label: const Text("다시 시도"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF764BA2),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () => ref.read(holidayListProvider.notifier).reSignIn(),
+              icon: const Icon(Icons.login, size: 18),
+              label: const Text("다른 계정으로 다시 로그인"),
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFF764BA2)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _fmtDate(DateTime d) =>
       "${d.year}.${d.month.toString().padLeft(2, '0')}.${d.day.toString().padLeft(2, '0')}";
+
+  String _fmtNum(double n) {
+    if (n == n.toInt()) return n.toInt().toString();
+    return n.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
+  }
 
   /// 다음 초기화일까지 남은 일수 텍스트 (오늘이면 "오늘", 지났으면 빈 문자열)
   String _dDayText(DateTime reset) {
@@ -194,15 +286,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     return (avg * 10).floorToDouble() / 10;
   }
 
-  Widget _buildMainContent(double total, double remaining, List<Map<String, dynamic>> events, DateTime? resetDate) {
-    // 이번 집계 주기: 지난 초기화일 ~ 다음 초기화일 전날
-    String? periodText;
-    if (resetDate != null) {
-      final r = resetDate.toLocal();
-      final start = DateTime(r.year - 1, r.month, r.day);
-      final end = DateTime(r.year, r.month, r.day).subtract(const Duration(days: 1));
-      periodText = "${_fmtDate(start)} ~ ${_fmtDate(end)}";
-    }
+  DateTime _eventStart(Map<String, dynamic> e) =>
+      e['date'] is DateTime ? e['date'] : DateTime.parse(e['date'].toString());
+
+  Widget _buildMainContent(
+    double total,
+    double remaining,
+    List<Map<String, dynamic>> allEvents,
+    List<Map<String, dynamic>> events,
+    DateTimeRange? displayRange,
+    DateTimeRange? cycleRange,
+    DateTime? resetDate,
+  ) {
+    final bool isCustom = _customRange != null;
 
     return RefreshIndicator(
       onRefresh: () => ref.read(holidayListProvider.notifier).refresh(),
@@ -215,18 +311,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                 _buildDashboardCard(total, remaining, resetDate),
                 const SizedBox(height: 32),
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     const Text("상세 사용 내역", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     const Spacer(),
-                    if (periodText != null)
-                      Text(
-                        periodText,
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    if (displayRange != null)
+                      InkWell(
+                        onTap: () => _pickDisplayRange(displayRange, cycleRange),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.tune, size: 14, color: isCustom ? const Color(0xFF764BA2) : Colors.grey),
+                              const SizedBox(width: 4),
+                              Text(
+                                "${_fmtDate(displayRange.start)} ~ ${_fmtDate(displayRange.end)}",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isCustom ? const Color(0xFF764BA2) : Colors.grey,
+                                  fontWeight: isCustom ? FontWeight.bold : FontWeight.normal,
+                                ),
+                              ),
+                              if (isCustom) ...[
+                                const SizedBox(width: 2),
+                                GestureDetector(
+                                  onTap: () => setState(() => _customRange = null),
+                                  child: const Icon(Icons.close, size: 14, color: Color(0xFF764BA2)),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
+                _buildUsageSummary(allEvents),
+                const SizedBox(height: 12),
               ]),
             ),
           ),
@@ -235,7 +358,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               child: Center(
                   child: Padding(
                     padding: EdgeInsets.only(top: 40),
-                    child: Text("감지된 휴가 일정이 없습니다.", style: TextStyle(color: Colors.grey)),
+                    child: Text("이 기간에 감지된 휴가 일정이 없습니다.", style: TextStyle(color: Colors.grey)),
                   )))
               : SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -252,12 +375,145 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  Widget _buildDashboardCard(double total, double remaining, DateTime? resetDate) {
-    String formatNum(double n) {
-      if (n == n.toInt()) return n.toInt().toString();
-      return n.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
+  /// 이번 달 사용량과 다가오는 휴가를 한 줄로 요약
+  /// 상세 내역 기간 선택 (기본값은 집계 주기)
+  Future<void> _pickDisplayRange(DateTimeRange current, DateTimeRange? cycleRange) async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      initialDateRange: current,
+      firstDate: DateTime(now.year - 10),
+      lastDate: DateTime(now.year + 10, 12, 31),
+      helpText: "상세 내역에 표시할 기간",
+      saveText: "적용",
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(primary: Color(0xFF764BA2)),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final sameAsCycle = cycleRange != null &&
+        DateUtils.isSameDay(picked.start, cycleRange.start) &&
+        DateUtils.isSameDay(picked.end, cycleRange.end);
+    setState(() => _customRange = sameAsCycle ? null : picked);
+  }
+
+  /// 이번 달 사용량과 다가오는 휴가를 한 줄로 요약. 탭하면 해당 목록을 보여줌
+  Widget _buildUsageSummary(List<Map<String, dynamic>> events) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+
+    final List<Map<String, dynamic>> thisMonthEvents = [];
+    final List<Map<String, dynamic>> upcomingEvents = [];
+    double thisMonth = 0.0;
+    double upcoming = 0.0;
+    for (final e in events) {
+      final d = _eventStart(e);
+      final deduction = (e['deduction'] ?? 0.0) as double;
+      if (d.year == now.year && d.month == now.month) {
+        thisMonth += deduction;
+        thisMonthEvents.add(e);
+      }
+      if (!DateTime(d.year, d.month, d.day).isBefore(todayStart)) {
+        upcoming += deduction;
+        upcomingEvents.add(e);
+      }
     }
 
+    Widget chip(IconData icon, String text, VoidCallback onTap) => InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 14, color: const Color(0xFF764BA2)),
+                const SizedBox(width: 4),
+                Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                const SizedBox(width: 2),
+                const Icon(Icons.keyboard_arrow_down, size: 14, color: Colors.grey),
+              ],
+            ),
+          ),
+        );
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        chip(
+          Icons.today,
+          "${now.month}월 사용 ${_fmtNum(thisMonth)}개",
+          () => _showEventListSheet("${now.year}년 ${now.month}월에 쓴 휴가", thisMonthEvents, thisMonth),
+        ),
+        chip(
+          Icons.upcoming,
+          "예정 ${upcomingEvents.length}건 · ${_fmtNum(upcoming)}개",
+          () => _showEventListSheet("다가오는 휴가", upcomingEvents, upcoming),
+        ),
+      ],
+    );
+  }
+
+  /// 요약 칩을 눌렀을 때 해당 휴가 목록을 보여주는 시트
+  void _showEventListSheet(String title, List<Map<String, dynamic>> events, double totalDeduction) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: const Color(0xFFF5F5F7),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.75),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+              child: Row(
+                children: [
+                  Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                  Text(
+                    "${events.length}건 · ${_fmtNum(totalDeduction)}개",
+                    style: const TextStyle(fontSize: 13, color: Colors.deepOrange, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: events.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Text("해당하는 휴가가 없습니다.", style: TextStyle(color: Colors.grey)),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                      itemCount: events.length,
+                      itemBuilder: (_, i) => _buildEventTile(events[i]),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDashboardCard(double total, double remaining, DateTime? resetDate) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -276,7 +532,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           const Text("사용 가능한 연차", style: TextStyle(color: Colors.white70, fontSize: 16)),
           const SizedBox(height: 8),
           Text(
-              "${formatNum(remaining)} / ${formatNum(total)}",
+              "${_fmtNum(remaining)} / ${_fmtNum(total)}",
               style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)
           ),
           const SizedBox(height: 16),
@@ -322,7 +578,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                 const Text("월 평균 사용 가능", style: TextStyle(color: Colors.white70, fontSize: 13)),
                 const Spacer(),
                 Text(
-                  "${formatNum(_monthlyAverage(remaining, resetDate.toLocal()))}개",
+                  "${_fmtNum(_monthlyAverage(remaining, resetDate.toLocal()))}개",
                   style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(width: 6),
@@ -339,12 +595,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   Widget _buildEventTile(Map<String, dynamic> event) {
-    final dynamic dateValue = event['date'];
     final dynamic endDateValue = event['endDate'];
 
-    final DateTime startDate = dateValue is DateTime
-        ? dateValue
-        : DateTime.parse(dateValue.toString());
+    final DateTime startDate = _eventStart(event);
 
     DateTime? endDate;
     if (endDateValue != null) {
@@ -384,7 +637,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         side: isToday ? const BorderSide(color: Color(0xFF764BA2), width: 2.0) : BorderSide.none,
       ),
       child: ListTile(
-        onTap: () => _openEventInGoogleCalendar(event['id']),
+        onTap: () => showLeaveDetailSheet(
+          context,
+          event: event,
+          onOpenCalendar: () => _openEventInGoogleCalendar(event['id']),
+        ),
         leading: CircleAvatar(
           backgroundColor: isPast ? Colors.grey[300] : const Color(0xFFF3E5F5),
           child: Icon(
@@ -428,146 +685,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       ),
     );
   }
-  Widget _buildGuideOverlay() {
-    return Container(
-      color: Colors.black.withOpacity(0.85),
-      width: double.infinity,
-      height: double.infinity,
-      child: Center(
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 30),
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.calendar_month, color: Color(0xFF764BA2), size: 48),
-              const SizedBox(height: 16),
-              const Text("💡 필수: 구글 캘린더 연동 안내", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              const Text(
-                "본 앱은 본인의 구글 캘린더에\n직접 입력하신 일정을 자동으로 읽어오는 방식입니다.\n로그인한 구글 계정의 캘린더에 \n아래 규칙에 맞춰 일정을 등록해 주세요.",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.black87, height: 1.5),
-              ),
-              const SizedBox(height: 24),
-              _guideRow("제목에 '연차' 포함 시", "1.0개 차감"),
-              _guideRow("제목에 '반차' 포함 시", "0.5개 차감"),
-              _guideRow("제목에 '반반차' 포함 시", "0.25개 차감"),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _closeGuide,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF764BA2),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text("이해했습니다", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
-          ),
+
+  /// 휴가 등록 시트에서 기간/종류/제목/장소/메모를 입력받아 앱에서 바로 캘린더에 등록
+  Future<void> _showAddLeaveSheet() async {
+    final request = await showAddLeaveSheet(context);
+    if (request == null || !mounted) return;
+
+    setState(() => _isAddingLeave = true);
+    try {
+      await ref.read(holidayListProvider.notifier).addLeave(request);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("'${request.title}' 일정을 캘린더에 등록했습니다."),
+          behavior: SnackBarBehavior.floating,
         ),
-      ),
-    );
-  }
-
-  Widget _guideRow(String t, String v) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(t), Text(v, style: const TextStyle(color: Color(0xFF764BA2), fontWeight: FontWeight.bold))]),
-  );
-
-  Future<void> _showLeaveTypeSheet() async {
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(1900),
-      lastDate: DateTime(2100),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(primary: Color(0xFF764BA2)),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (pickedDate == null) return;
-    if (!mounted) return;
-
-    showCupertinoModalPopup(
-      context: context,
-      builder: (context) => CupertinoActionSheet(
-        title: Text("${pickedDate.year}.${pickedDate.month}.${pickedDate.day} 휴가 종류"),
-        actions: [
-          _leaveAction(pickedDate, "연차", 9, 18),
-          _leaveAction(pickedDate, "반차", 13, 18),
-          _leaveAction(pickedDate, "반반차", 16, 18),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("취소", style: TextStyle(color: Colors.redAccent)),
-        ),
-      ),
-    );
-  }
-
-  Widget _leaveAction(DateTime date, String type, int startHour, int endHour) {
-    return CupertinoActionSheetAction(
-      onPressed: () {
-        Navigator.pop(context);
-        _openGoogleCalendar(date, type, startHour, endHour);
-      },
-      child: Text("$type ($startHour시 - $endHour시)"),
-    );
-  }
-
-  Future<void> _openGoogleCalendar(DateTime date, String type, int startH, int endH) async {
-    final start = DateTime(date.year, date.month, date.day, startH);
-    final end = DateTime(date.year, date.month, date.day, endH);
-
-    // 날짜 포맷 (UTC 기준 ISO8601, 특수기호 제거)
-    String formatTime(DateTime dt) =>
-        dt.toUtc().toIso8601String().replaceAll(RegExp(r'[-:]|\.\d+'), '');
-
-    final String dateParam = "${formatTime(start)}/${formatTime(end)}";
-
-    // ✅ 가장 범용적으로 앱 등록 화면을 띄워주는 URL 패턴
-    final Uri uri = Uri.parse("https://www.google.com/calendar/render").replace(
-      queryParameters: {
-        'action': 'TEMPLATE',
-        'text': '[$type]',
-        'dates': dateParam,
-        'details': '연차매니저 앱에서 등록된 $type 일정입니다.',
-        'sf': 'true', // Show Form (등록 폼을 강제로 보여줌)
-        'output': 'xml', // 앱 딥링크 처리 시 인식이 더 잘 되는 구형 파라미터
-      },
-    );
-
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(
-        uri,
-        // ✅ 'externalApplication'으로 먼저 테스트해보세요.
-        // 일부 기기에서는 'externalNonBrowserApplication'이 앱 내부의 특정 Activity를 못 찾을 수 있습니다.
-        mode: LaunchMode.externalApplication,
       );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("등록 실패: 캘린더 쓰기 권한을 확인해 주세요.\n$e"),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isAddingLeave = false);
     }
   }
 
   Future<void> _openEventInGoogleCalendar(String? eventId) async {
     if (eventId == null || eventId.isEmpty) return;
-    final String url = "https://www.google.com/calendar/event?eid=${_encodeId(eventId)}";
+    final email = ref.read(calendarServiceProvider).currentEmail;
+    if (email == null) return;
+    final String url = "https://www.google.com/calendar/event?eid=${_encodeId(eventId, email)}";
     final Uri uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
-  String _encodeId(String id) {
-    return base64Encode(utf8.encode('$id user@gmail.com')).replaceAll('=', '');
+  /// 구글 캘린더 웹 링크의 eid 는 "<eventId> <계정이메일>" 을 base64 한 값
+  String _encodeId(String id, String email) {
+    return base64Encode(utf8.encode('$id $email')).replaceAll('=', '');
   }
 }

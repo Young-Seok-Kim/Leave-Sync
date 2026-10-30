@@ -2,7 +2,7 @@ name: leavesync
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.12+13
+version: 1.0.13+14
 # 2026. 5. 13
 # 월이 지나면 연차가 자동 증분됩니다.
 
@@ -29,6 +29,10 @@ dependencies:
   shared_preferences: ^2.2.0
   url_launcher: ^6.3.2
   flutter_dotenv: ^5.1.0
+  home_widget: ^0.10.0
+  flutter_local_notifications: ^22.3.3
+  timezone: ^0.11.2
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

@@ -21,6 +21,9 @@ class UserSetting extends HiveObject {
   @HiveField(5)
   final int? schemaVersion;
 
+  @HiveField(6)
+  final List<String>? calendarIds; // 휴가를 읽어올 구글 캘린더 ID 목록 (null이면 primary)
+
   UserSetting({
     required this.totalLeave,
     required this.resetDate,
@@ -28,7 +31,12 @@ class UserSetting extends HiveObject {
     this.entryDate,
     this.lastAutoUpdate,
     this.schemaVersion = 1,
+    this.calendarIds,
   });
+
+  /// 선택된 캘린더 목록. 비어 있으면 기본 캘린더(primary)만 사용
+  List<String> get effectiveCalendarIds =>
+      (calendarIds == null || calendarIds!.isEmpty) ? const ['primary'] : calendarIds!;
 
   // 복사 메서드 (Riverpod 상태 변경용)
   UserSetting copyWith({
@@ -38,6 +46,7 @@ class UserSetting extends HiveObject {
     DateTime? entryDate,
     DateTime? lastAutoUpdate,
     int? schemaVersion,
+    List<String>? calendarIds,
   }) {
     return UserSetting(
       totalLeave: totalLeave ?? this.totalLeave,
@@ -46,6 +55,7 @@ class UserSetting extends HiveObject {
       entryDate: entryDate ?? this.entryDate,
       lastAutoUpdate: lastAutoUpdate ?? this.lastAutoUpdate,
       schemaVersion: schemaVersion ?? this.schemaVersion,
+      calendarIds: calendarIds ?? this.calendarIds,
     );
   }
 }
