@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_title">사용 가능한 연차</string>
+    <string name="widget_description">잔여 연차와 다음 초기화일을 홈 화면에서 바로 확인합니다</string>
+</resources>

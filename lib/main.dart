@@ -8,18 +8,25 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'data/models/user_setting.dart';
 import 'data/providers/leave_provider.dart';
+import 'data/services/notification_service.dart';
 
 void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
   Hive.registerAdapter(UserSettingAdapter());
   await Hive.openBox<UserSetting>('settings');
-  WidgetsFlutterBinding.ensureInitialized();
   try {
     // 2. .env 파일 로드
     await dotenv.load(fileName: ".env");
     debugPrint("✅ 환경변수 로드 완료");
   } catch (e) {
     debugPrint("❌ .env 파일을 찾을 수 없습니다: $e");
+  }
+  // 3. 연차 소멸 알림 초기화 (실패해도 앱 실행에는 영향 없음)
+  try {
+    await NotificationService.instance.init();
+  } catch (e) {
+    debugPrint("⚠️ 알림 초기화 실패: $e");
   }
   runApp(const ProviderScope(child: MyApp()));
 }
