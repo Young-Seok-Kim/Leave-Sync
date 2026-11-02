@@ -149,7 +149,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (ok != true || !mounted) return;
 
     // 로그아웃하면 로컬 설정을 지우므로, 그 전에 드라이브 백업이 확실히 올라갔는지 확인
-    final backedUp = await ref.read(leaveStateProvider.notifier).backupNow();
+    final backedUp = await _runWithProgress(
+      "설정을 백업하는 중...",
+      () => ref.read(leaveStateProvider.notifier).backupNow(),
+    );
     if (!backedUp && mounted) {
       final proceed = await showDialog<bool>(
         context: context,
@@ -170,11 +173,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
     if (!mounted) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_first_launch', true);
-    await ref.read(calendarServiceProvider).signOut();
-    await NotificationService.instance.cancelAll();
+    await _runWithProgress("로그아웃하는 중...", () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_first_launch', true);
+      await ref.read(calendarServiceProvider).signOut();
+      await NotificationService.instance.cancelAll();
+    });
     if (mounted) Navigator.pop(context, SettingsScreen.resultLoggedOut);
+  }
+
+  /// 작업이 끝날 때까지 닫을 수 없는 진행 다이얼로그를 띄운다
+  Future<T> _runWithProgress<T>(String message, Future<T> Function() task) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Row(
+            children: [
+              const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5, color: _brand)),
+              const SizedBox(width: 20),
+              Expanded(child: Text(message)),
+            ],
+          ),
+        ),
+      ),
+    );
+    try {
+      return await task();
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
   }
 
   @override
