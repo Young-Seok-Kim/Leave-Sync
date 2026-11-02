@@ -136,7 +136,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("로그아웃", style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text("구글 계정 연결을 해제합니다.\n입사일 등 설정은 그대로 유지되며,\n다음 실행 시 다시 로그인하면 됩니다."),
+        content: const Text("구글 계정 연결을 해제하고 로그인 화면으로 돌아갑니다.\n입사일 등 설정은 구글 계정에 저장되어 있어\n다시 로그인하면 그대로 복원됩니다."),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소")),
           TextButton(
@@ -147,6 +147,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+
+    // 로그아웃하면 로컬 설정을 지우므로, 그 전에 드라이브 백업이 확실히 올라갔는지 확인
+    final backedUp = await ref.read(leaveStateProvider.notifier).backupNow();
+    if (!backedUp && mounted) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text("백업 실패", style: TextStyle(fontWeight: FontWeight.bold)),
+          content: const Text("설정을 구글 계정에 저장하지 못했습니다.\n지금 로그아웃하면 다시 로그인할 때\n입사일 등을 다시 입력해야 할 수 있습니다."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소")),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text("그래도 로그아웃", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+    if (!mounted) return;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_first_launch', true);

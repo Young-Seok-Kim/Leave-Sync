@@ -207,6 +207,21 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
     await _saveState(setting);
   }
 
+  /// 로그아웃: 로컬 설정을 지워 초기 화면(구글 로그인)으로 돌아가게 한다.
+  /// 설정은 드라이브에 백업돼 있으므로 다시 로그인하면 그 계정 것으로 복원된다.
+  Future<void> clearLocal() async {
+    state = null;
+    await Hive.box<UserSetting>('settings').clear();
+  }
+
+  /// 현재 설정을 지금 바로 드라이브에 올린다 (로그아웃 직전 등). 성공 여부 반환
+  Future<bool> backupNow() async {
+    final current = state;
+    final b = _backup;
+    if (current == null || b == null) return false;
+    return b.backup(current);
+  }
+
   /// 연차 소멸 알림 사용 여부만 변경
   Future<void> saveNotificationsEnabled(bool enabled) async {
     if (state == null) return;

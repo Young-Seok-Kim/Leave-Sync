@@ -105,9 +105,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
     if (!mounted) return;
     if (result == SettingsScreen.resultLoggedOut) {
-      // 로그아웃 → 다시 로그인 창을 띄우기 위해 목록을 처음부터 다시 로드
-      setState(() => _showGuide = true);
-      ref.invalidate(holidayListProvider);
+      // 로그아웃 → 로컬 설정을 지우면 MyApp 이 초기 화면(구글 로그인 버튼)으로 바꿔 준다.
+      // 바로 구글 로그인 다이얼로그를 띄우지 않고 사용자가 버튼을 눌러 로그인하게 한다.
+      await ref.read(leaveStateProvider.notifier).clearLocal();
     } else {
       ref.read(holidayListProvider.notifier).refresh();
     }
