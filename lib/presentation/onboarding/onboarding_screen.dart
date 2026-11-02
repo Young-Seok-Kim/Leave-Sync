@@ -212,7 +212,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             const Text(
-              "구글 캘린더로 연차를 관리합니다.\n설정은 계정에 저장되어 재설치해도 그대로 복원됩니다.",
+              "구글 캘린더로 연차를 관리합니다.",
               textAlign: TextAlign.center,
               style:
                   TextStyle(fontSize: 13, color: Colors.black54, height: 1.5),
