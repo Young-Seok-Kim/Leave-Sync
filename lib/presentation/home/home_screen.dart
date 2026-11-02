@@ -29,8 +29,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkFirstLaunch();
-    // 알림 권한은 홈 화면에 들어온 뒤 한 번 요청 (Android 13+)
-    NotificationService.instance.requestPermission();
+    // 알림 권한은 홈 화면에 들어온 뒤 한 번 요청 (Android 13+). 설정에서 알림을 껐으면 묻지 않음
+    if (ref.read(leaveStateProvider)?.remindersOn ?? true) {
+      NotificationService.instance.requestPermission();
+    }
     // 데이터 동기화는 Provider가 알아서 build 시점에 수행합니다.
   }
 

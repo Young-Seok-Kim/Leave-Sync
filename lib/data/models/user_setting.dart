@@ -27,6 +27,9 @@ class UserSetting extends HiveObject {
   @HiveField(7)
   final String? accountEmail; // 이 설정이 묶여 있는 구글 계정 (백업/복원 기준)
 
+  @HiveField(8)
+  final bool? notificationsEnabled; // 연차 소멸 알림 사용 여부 (null 이면 사용)
+
   UserSetting({
     required this.totalLeave,
     required this.resetDate,
@@ -36,7 +39,11 @@ class UserSetting extends HiveObject {
     this.schemaVersion = 1,
     this.calendarIds,
     this.accountEmail,
+    this.notificationsEnabled,
   });
+
+  /// 연차 소멸 알림 사용 여부 (기본값: 사용)
+  bool get remindersOn => notificationsEnabled ?? true;
 
   /// 구글 드라이브 백업용 JSON
   Map<String, dynamic> toJson() => {
@@ -47,6 +54,7 @@ class UserSetting extends HiveObject {
         'schemaVersion': schemaVersion,
         'calendarIds': calendarIds,
         'accountEmail': accountEmail,
+        'notificationsEnabled': notificationsEnabled,
       };
 
   static UserSetting? fromJson(Map<String, dynamic> json) {
@@ -63,6 +71,7 @@ class UserSetting extends HiveObject {
       schemaVersion: json['schemaVersion'] is int ? json['schemaVersion'] as int : 1,
       calendarIds: (json['calendarIds'] as List?)?.cast<String>(),
       accountEmail: json['accountEmail'] as String?,
+      notificationsEnabled: json['notificationsEnabled'] as bool?,
     );
   }
 
@@ -80,6 +89,7 @@ class UserSetting extends HiveObject {
     int? schemaVersion,
     List<String>? calendarIds,
     String? accountEmail,
+    bool? notificationsEnabled,
   }) {
     return UserSetting(
       totalLeave: totalLeave ?? this.totalLeave,
@@ -90,6 +100,7 @@ class UserSetting extends HiveObject {
       schemaVersion: schemaVersion ?? this.schemaVersion,
       calendarIds: calendarIds ?? this.calendarIds,
       accountEmail: accountEmail ?? this.accountEmail,
+      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
     );
   }
 }

@@ -107,11 +107,18 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
     final entry = state!.entryDate!;
     final reset = state!.resetDate;
 
-    // 1. [리셋 로직]
-    if (!now.isBefore(reset)) {
+    // 1. [리셋 로직] 초기화 날짜는 "그날까지 사용 가능"한 마지막 날이므로, 그 다음 날부터 새 주기가 시작된다.
+    //    예: 초기화일 12.31 → 1.1 에 새 연차 지급, 다음 초기화일은 내년 12.31
+    final today = DateTime(now.year, now.month, now.day);
+    final resetDay = DateTime(reset.year, reset.month, reset.day);
+    if (today.isAfter(resetDay)) {
       // ★ 시뮬레이션 중인 'now'를 계산 함수에 전달
       final newTotal = _calculateFullLegalLeave(entry, now: now);
-      final nextReset = DateTime(reset.year + 1, reset.month, reset.day);
+      // 오랫동안 앱을 안 열었어도 다음 초기화일이 오늘 이후가 될 때까지 1년씩 넘긴다
+      var nextReset = DateTime(resetDay.year + 1, resetDay.month, resetDay.day);
+      while (today.isAfter(nextReset)) {
+        nextReset = DateTime(nextReset.year + 1, nextReset.month, nextReset.day);
+      }
 
       // ★ 저장 시점도 'now'로 기록해야 무한 루프 안 도미
       saveSettings(newTotal, nextReset, entry, updateLastUpdate: true, mockDate: now);
@@ -195,8 +202,15 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
       schemaVersion: _currentSchemaVersion, // 저장 시 스키마 버전 명시
       calendarIds: calendarIds ?? state?.calendarIds,
       accountEmail: state?.accountEmail,
+      notificationsEnabled: state?.notificationsEnabled,
     );
     await _saveState(setting);
+  }
+
+  /// 연차 소멸 알림 사용 여부만 변경
+  Future<void> saveNotificationsEnabled(bool enabled) async {
+    if (state == null) return;
+    await _saveState(state!.copyWith(notificationsEnabled: enabled));
   }
 
   /// 휴가를 읽어올 캘린더 목록만 변경
@@ -290,10 +304,14 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
       remaining: remaining,
       resetDate: settings.resetDate,
     ));
-    unawaited(NotificationService.instance.scheduleResetReminders(
-      remaining: remaining,
-      resetDate: settings.resetDate,
-    ));
+    if (settings.remindersOn) {
+      unawaited(NotificationService.instance.scheduleResetReminders(
+        remaining: remaining,
+        resetDate: settings.resetDate,
+      ));
+    } else {
+      unawaited(NotificationService.instance.cancelAll());
+    }
 
     // 전체 일정을 돌려주고, 화면에서 기간을 골라 거른다
     return allEvents;
@@ -328,13 +346,15 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
 DateTime leaveEventDate(Map<String, dynamic> e) =>
     (e['date'] is DateTime ? e['date'] as DateTime : DateTime.parse(e['date'].toString())).toLocal();
 
-/// 현재 집계 주기: 지난 초기화일 ~ 다음 초기화일 전날
+/// 현재 집계 주기: 지난 초기화일 다음 날 ~ 다가오는 초기화일(그날 포함)
+/// 예: 초기화일 12.31 → 1.1 ~ 12.31, 초기화일 4.12 → 작년 4.13 ~ 올해 4.12
 ({DateTime start, DateTime end}) currentPeriod(DateTime resetDate, {DateTime? now}) {
   final n = now ?? DateTime.now();
+  final today = DateTime(n.year, n.month, n.day);
   final r = resetDate.toLocal();
-  DateTime start = DateTime(n.year, r.month, r.day);
-  if (start.isAfter(n)) start = DateTime(n.year - 1, r.month, r.day);
-  final end = DateTime(start.year + 1, r.month, r.day).subtract(const Duration(days: 1));
+  DateTime end = DateTime(today.year, r.month, r.day);
+  if (end.isBefore(today)) end = DateTime(today.year + 1, r.month, r.day);
+  final start = DateTime(end.year - 1, r.month, r.day).add(const Duration(days: 1));
   return (start: start, end: end);
 }
 

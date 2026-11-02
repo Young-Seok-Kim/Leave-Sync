@@ -28,6 +28,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _calendarError;
   late Set<String> _selectedCalendarIds;
 
+  // 연차 소멸 알림
+  late bool _remindersOn;
+
   @override
   void initState() {
     super.initState();
@@ -36,6 +39,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _selectedDate = currentSetting?.resetDate ?? DateTime(DateTime.now().year, 12, 31);
     _entryDate = currentSetting?.entryDate;
     _selectedCalendarIds = {...(currentSetting?.effectiveCalendarIds ?? const ['primary'])};
+    _remindersOn = currentSetting?.remindersOn ?? true;
     _loadCalendars();
   }
 
@@ -113,6 +117,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           calendarIds: ids.isEmpty ? const ['primary'] : ids,
         );
     if (mounted) Navigator.pop(context);
+  }
+
+  /// 알림 스위치는 저장 버튼과 별개로 바로 반영. 켜면 권한을 묻고, 끄면 예약된 알림을 모두 취소
+  Future<void> _toggleReminders(bool on) async {
+    setState(() => _remindersOn = on);
+    await ref.read(leaveStateProvider.notifier).saveNotificationsEnabled(on);
+    if (on) {
+      await NotificationService.instance.requestPermission();
+    } else {
+      await NotificationService.instance.cancelAll();
+    }
   }
 
   Future<void> _confirmLogout() async {
@@ -194,6 +209,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             const SizedBox(height: 12),
             _buildCalendarSection(),
+
+            const SizedBox(height: 32),
+            _sectionTitle("알림"),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              value: _remindersOn,
+              onChanged: _toggleReminders,
+              activeThumbColor: _brand,
+              secondary: const Icon(Icons.notifications_active_outlined, color: _brand),
+              title: const Text("연차 소멸 알림"),
+              subtitle: const Text("초기화일 30일·7일·1일 전에 남은 연차를 알려드립니다", style: TextStyle(fontSize: 12)),
+              shape: RoundedRectangleBorder(side: BorderSide(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
+            ),
 
             const SizedBox(height: 32),
             _sectionTitle("기타"),
