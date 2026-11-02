@@ -28,6 +28,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _calendarError;
   late Set<String> _selectedCalendarIds;
 
+  // 연차 소멸 알림
+  late bool _remindersOn;
+
   @override
   void initState() {
     super.initState();
@@ -36,6 +39,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _selectedDate = currentSetting?.resetDate ?? DateTime(DateTime.now().year, 12, 31);
     _entryDate = currentSetting?.entryDate;
     _selectedCalendarIds = {...(currentSetting?.effectiveCalendarIds ?? const ['primary'])};
+    _remindersOn = currentSetting?.remindersOn ?? true;
     _loadCalendars();
   }
 
@@ -115,13 +119,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (mounted) Navigator.pop(context);
   }
 
+  /// 알림 스위치는 저장 버튼과 별개로 바로 반영. 켜면 권한을 묻고, 끄면 예약된 알림을 모두 취소
+  Future<void> _toggleReminders(bool on) async {
+    setState(() => _remindersOn = on);
+    await ref.read(leaveStateProvider.notifier).saveNotificationsEnabled(on);
+    if (on) {
+      await NotificationService.instance.requestPermission();
+    } else {
+      await NotificationService.instance.cancelAll();
+    }
+  }
+
   Future<void> _confirmLogout() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("로그아웃", style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text("구글 계정 연결을 해제합니다.\n입사일 등 설정은 그대로 유지되며,\n다음 실행 시 다시 로그인하면 됩니다."),
+        content: const Text("구글 계정 연결을 해제하고 로그인 화면으로 돌아갑니다.\n입사일 등 설정은 구글 계정에 저장되어 있어\n다시 로그인하면 그대로 복원됩니다."),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소")),
           TextButton(
@@ -133,11 +148,64 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
     if (ok != true || !mounted) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_first_launch', true);
-    await ref.read(calendarServiceProvider).signOut();
-    await NotificationService.instance.cancelAll();
+    // 로그아웃하면 로컬 설정을 지우므로, 그 전에 드라이브 백업이 확실히 올라갔는지 확인
+    final backedUp = await _runWithProgress(
+      "설정을 백업하는 중...",
+      () => ref.read(leaveStateProvider.notifier).backupNow(),
+    );
+    if (!backedUp && mounted) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text("백업 실패", style: TextStyle(fontWeight: FontWeight.bold)),
+          content: const Text("설정을 구글 계정에 저장하지 못했습니다.\n지금 로그아웃하면 다시 로그인할 때\n입사일 등을 다시 입력해야 할 수 있습니다."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소")),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text("그래도 로그아웃", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+    if (!mounted) return;
+
+    await _runWithProgress("로그아웃하는 중...", () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_first_launch', true);
+      await ref.read(calendarServiceProvider).signOut();
+      await NotificationService.instance.cancelAll();
+    });
     if (mounted) Navigator.pop(context, SettingsScreen.resultLoggedOut);
+  }
+
+  /// 작업이 끝날 때까지 닫을 수 없는 진행 다이얼로그를 띄운다
+  Future<T> _runWithProgress<T>(String message, Future<T> Function() task) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Row(
+            children: [
+              const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5, color: _brand)),
+              const SizedBox(width: 20),
+              Expanded(child: Text(message)),
+            ],
+          ),
+        ),
+      ),
+    );
+    try {
+      return await task();
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
   }
 
   @override
@@ -194,6 +262,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             const SizedBox(height: 12),
             _buildCalendarSection(),
+
+            const SizedBox(height: 32),
+            _sectionTitle("알림"),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              value: _remindersOn,
+              onChanged: _toggleReminders,
+              activeThumbColor: _brand,
+              secondary: const Icon(Icons.notifications_active_outlined, color: _brand),
+              title: const Text("연차 소멸 알림"),
+              subtitle: const Text("초기화일 30일·7일·1일 전에 남은 연차를 알려드립니다", style: TextStyle(fontSize: 12)),
+              shape: RoundedRectangleBorder(side: BorderSide(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
+            ),
 
             const SizedBox(height: 32),
             _sectionTitle("기타"),

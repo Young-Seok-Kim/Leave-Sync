@@ -7,12 +7,16 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/user_setting.dart';
 import '../services/google_calendar_service.dart';
 import '../services/notification_service.dart';
+import '../services/settings_backup_service.dart';
 import '../services/widget_service.dart';
 
 final calendarServiceProvider = Provider((ref) => GoogleCalendarService());
 
+final settingsBackupProvider =
+    Provider((ref) => SettingsBackupService(ref.read(calendarServiceProvider)));
+
 final leaveStateProvider = StateNotifierProvider<LeaveNotifier, UserSetting?>((ref) {
-  return LeaveNotifier();
+  return LeaveNotifier(backup: ref.read(settingsBackupProvider));
 });
 
 final holidayListProvider = AsyncNotifierProvider<HolidayListNotifier, List<Map<String, dynamic>>>(() {
@@ -23,7 +27,12 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
 
   static const int _currentSchemaVersion = 2;
 
-  LeaveNotifier() : super(null) {
+  /// 구글 드라이브 백업 (테스트 등에서는 null)
+  final SettingsBackupService? _backup;
+
+  LeaveNotifier({SettingsBackupService? backup})
+      : _backup = backup,
+        super(null) {
     _init();
   }
 
@@ -98,11 +107,18 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
     final entry = state!.entryDate!;
     final reset = state!.resetDate;
 
-    // 1. [리셋 로직]
-    if (!now.isBefore(reset)) {
+    // 1. [리셋 로직] 초기화 날짜는 "그날까지 사용 가능"한 마지막 날이므로, 그 다음 날부터 새 주기가 시작된다.
+    //    예: 초기화일 12.31 → 1.1 에 새 연차 지급, 다음 초기화일은 내년 12.31
+    final today = DateTime(now.year, now.month, now.day);
+    final resetDay = DateTime(reset.year, reset.month, reset.day);
+    if (today.isAfter(resetDay)) {
       // ★ 시뮬레이션 중인 'now'를 계산 함수에 전달
       final newTotal = _calculateFullLegalLeave(entry, now: now);
-      final nextReset = DateTime(reset.year + 1, reset.month, reset.day);
+      // 오랫동안 앱을 안 열었어도 다음 초기화일이 오늘 이후가 될 때까지 1년씩 넘긴다
+      var nextReset = DateTime(resetDay.year + 1, resetDay.month, resetDay.day);
+      while (today.isAfter(nextReset)) {
+        nextReset = DateTime(nextReset.year + 1, nextReset.month, nextReset.day);
+      }
 
       // ★ 저장 시점도 'now'로 기록해야 무한 루프 안 도미
       saveSettings(newTotal, nextReset, entry, updateLastUpdate: true, mockDate: now);
@@ -131,10 +147,41 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
   }
 
 
-  Future<void> _saveState(UserSetting setting) async {
+  Future<void> _saveState(UserSetting setting, {bool backup = true}) async {
     state = setting;
     final box = Hive.box<UserSetting>('settings');
     await box.put(0, setting);
+    // 로그인돼 있으면 구글 드라이브에도 올려 두어 앱을 지워도 설정이 남도록 함
+    final b = _backup;
+    if (backup && b != null) unawaited(b.backup(setting));
+  }
+
+  /// 드라이브 백업에서 받아온 설정을 그대로 적용 (다시 올릴 필요는 없음)
+  Future<void> applyRestored(UserSetting restored, String email) async {
+    var setting = restored.copyWith(accountEmail: email, isFirstRun: false);
+    if ((setting.schemaVersion ?? 0) < _currentSchemaVersion) {
+      setting = _migrate(setting, setting.schemaVersion ?? 0);
+    }
+    await _saveState(setting, backup: false);
+    refreshTotalLeave();
+  }
+
+  /// 로그인한 계정과 로컬 설정을 맞춘다.
+  /// - 로컬 설정이 아직 어느 계정에도 묶이지 않았으면 이 계정에 묶고 백업
+  /// - 다른 계정으로 바뀌었으면 그 계정의 백업이 있을 때 그것으로 교체, 없으면 현재 설정을 그 계정에 묶어 백업
+  Future<void> syncAccount(String email) async {
+    final current = state;
+    if (current == null || current.accountEmail == email) return;
+
+    final b = _backup;
+    if (current.accountEmail != null && b != null) {
+      final restored = await b.restore();
+      if (restored != null) {
+        await applyRestored(restored, email);
+        return;
+      }
+    }
+    await _saveState(current.copyWith(accountEmail: email));
   }
 
   Future<void> saveSettings(
@@ -154,8 +201,31 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
       lastAutoUpdate: updateLastUpdate ? now : state?.lastAutoUpdate,
       schemaVersion: _currentSchemaVersion, // 저장 시 스키마 버전 명시
       calendarIds: calendarIds ?? state?.calendarIds,
+      accountEmail: state?.accountEmail,
+      notificationsEnabled: state?.notificationsEnabled,
     );
     await _saveState(setting);
+  }
+
+  /// 로그아웃: 로컬 설정을 지워 초기 화면(구글 로그인)으로 돌아가게 한다.
+  /// 설정은 드라이브에 백업돼 있으므로 다시 로그인하면 그 계정 것으로 복원된다.
+  Future<void> clearLocal() async {
+    state = null;
+    await Hive.box<UserSetting>('settings').clear();
+  }
+
+  /// 현재 설정을 지금 바로 드라이브에 올린다 (로그아웃 직전 등). 성공 여부 반환
+  Future<bool> backupNow() async {
+    final current = state;
+    final b = _backup;
+    if (current == null || b == null) return false;
+    return b.backup(current);
+  }
+
+  /// 연차 소멸 알림 사용 여부만 변경
+  Future<void> saveNotificationsEnabled(bool enabled) async {
+    if (state == null) return;
+    await _saveState(state!.copyWith(notificationsEnabled: enabled));
   }
 
   /// 휴가를 읽어올 캘린더 목록만 변경
@@ -210,15 +280,20 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
 
   Future<List<Map<String, dynamic>>> _fetchCalendarData() async {
     final service = ref.read(calendarServiceProvider);
-    final settings = ref.read(leaveStateProvider);
+    var settings = ref.read(leaveStateProvider);
 
     if (settings == null) return [];
 
     var account = await service.signInSilently() ?? await service.signIn();
     if (account == null) throw NotSignedInException();
 
-    // 예전 버전(읽기 전용)으로 로그인한 경우 일정 등록 권한을 추가로 요청
+    // 예전 버전(읽기 전용)으로 로그인한 경우 일정 등록/백업 권한을 추가로 요청
     await service.ensureScopes();
+
+    // 로그인한 계정 기준으로 설정을 맞춤 (계정이 바뀌었으면 그 계정의 백업으로 교체)
+    final leaveNotifier = ref.read(leaveStateProvider.notifier);
+    await leaveNotifier.syncAccount(account.email);
+    settings = ref.read(leaveStateProvider) ?? settings;
 
     // ★ 수정: 서비스 호출 시 입사일 정보 전달
     final result = await service.calculateUsedLeave(
@@ -244,10 +319,14 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
       remaining: remaining,
       resetDate: settings.resetDate,
     ));
-    unawaited(NotificationService.instance.scheduleResetReminders(
-      remaining: remaining,
-      resetDate: settings.resetDate,
-    ));
+    if (settings.remindersOn) {
+      unawaited(NotificationService.instance.scheduleResetReminders(
+        remaining: remaining,
+        resetDate: settings.resetDate,
+      ));
+    } else {
+      unawaited(NotificationService.instance.cancelAll());
+    }
 
     // 전체 일정을 돌려주고, 화면에서 기간을 골라 거른다
     return allEvents;
@@ -282,13 +361,15 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
 DateTime leaveEventDate(Map<String, dynamic> e) =>
     (e['date'] is DateTime ? e['date'] as DateTime : DateTime.parse(e['date'].toString())).toLocal();
 
-/// 현재 집계 주기: 지난 초기화일 ~ 다음 초기화일 전날
+/// 현재 집계 주기: 지난 초기화일 다음 날 ~ 다가오는 초기화일(그날 포함)
+/// 예: 초기화일 12.31 → 1.1 ~ 12.31, 초기화일 4.12 → 작년 4.13 ~ 올해 4.12
 ({DateTime start, DateTime end}) currentPeriod(DateTime resetDate, {DateTime? now}) {
   final n = now ?? DateTime.now();
+  final today = DateTime(n.year, n.month, n.day);
   final r = resetDate.toLocal();
-  DateTime start = DateTime(n.year, r.month, r.day);
-  if (start.isAfter(n)) start = DateTime(n.year - 1, r.month, r.day);
-  final end = DateTime(start.year + 1, r.month, r.day).subtract(const Duration(days: 1));
+  DateTime end = DateTime(today.year, r.month, r.day);
+  if (end.isBefore(today)) end = DateTime(today.year + 1, r.month, r.day);
+  final start = DateTime(end.year - 1, r.month, r.day).add(const Duration(days: 1));
   return (start: start, end: end);
 }
 

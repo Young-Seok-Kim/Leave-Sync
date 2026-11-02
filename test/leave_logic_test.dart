@@ -57,5 +57,72 @@ void main() {
       }
       print('--- [시뮬레이션 종료] ---\n');
     });
+
+    test('초기화일 당일까지 사용 가능하고 다음 날 리셋되며, 다음 초기화일은 1년 뒤 같은 날', () async {
+      final box = Hive.box<UserSetting>('settings');
+      final initial = UserSetting(
+        totalLeave: 15.0,
+        resetDate: DateTime(2026, 12, 31),
+        entryDate: DateTime(2020, 1, 1),
+        lastAutoUpdate: DateTime(2026, 11, 1),
+        schemaVersion: 2,
+      );
+      await box.put(0, initial);
+      final notifier = LeaveNotifier();
+      await Future.delayed(Duration.zero);
+      notifier.state = initial;
+
+      // 12.31 당일에는 아직 리셋되지 않음
+      notifier.refreshTotalLeave(mockDate: DateTime(2026, 12, 31, 23));
+      expect(notifier.state!.resetDate, DateTime(2026, 12, 31));
+
+      // 1.1 이 되면 리셋되고 다음 초기화일은 2027.12.31
+      notifier.refreshTotalLeave(mockDate: DateTime(2027, 1, 1));
+      expect(notifier.state!.resetDate, DateTime(2027, 12, 31));
+    });
+
+    test('오래 안 열었다가 실행해도 다음 초기화일은 오늘 이후로 맞춰짐', () async {
+      final box = Hive.box<UserSetting>('settings');
+      final initial = UserSetting(
+        totalLeave: 15.0,
+        resetDate: DateTime(2024, 12, 31),
+        entryDate: DateTime(2020, 1, 1),
+        lastAutoUpdate: DateTime(2024, 11, 1),
+        schemaVersion: 2,
+      );
+      await box.put(0, initial);
+      final notifier = LeaveNotifier();
+      await Future.delayed(Duration.zero);
+      notifier.state = initial;
+
+      notifier.refreshTotalLeave(mockDate: DateTime(2026, 11, 2));
+      expect(notifier.state!.resetDate, DateTime(2026, 12, 31));
+    });
+  });
+
+  group('집계 주기 계산', () {
+    test('초기화일 12.31 → 1.1 ~ 12.31', () {
+      final p = currentPeriod(DateTime(2026, 12, 31), now: DateTime(2026, 11, 2));
+      expect(p.start, DateTime(2026, 1, 1));
+      expect(p.end, DateTime(2026, 12, 31));
+    });
+
+    test('초기화일 당일도 현재 주기에 포함', () {
+      final p = currentPeriod(DateTime(2026, 12, 31), now: DateTime(2026, 12, 31));
+      expect(p.start, DateTime(2026, 1, 1));
+      expect(p.end, DateTime(2026, 12, 31));
+    });
+
+    test('초기화일이 지나면 다음 주기 (1.1 → 올해 1.1 ~ 12.31)', () {
+      final p = currentPeriod(DateTime(2026, 12, 31), now: DateTime(2027, 1, 1));
+      expect(p.start, DateTime(2027, 1, 1));
+      expect(p.end, DateTime(2027, 12, 31));
+    });
+
+    test('입사일 기준 초기화일 4.12 → 작년 4.13 ~ 올해 4.12', () {
+      final p = currentPeriod(DateTime(2027, 4, 12), now: DateTime(2026, 11, 2));
+      expect(p.start, DateTime(2026, 4, 13));
+      expect(p.end, DateTime(2027, 4, 12));
+    });
   });
 }

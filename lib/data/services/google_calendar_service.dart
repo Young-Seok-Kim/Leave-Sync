@@ -1,6 +1,8 @@
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/calendar/v3.dart';
+import 'package:googleapis/drive/v3.dart' show DriveApi;
+import 'package:googleapis_auth/googleapis_auth.dart' show AuthClient;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
@@ -77,10 +79,11 @@ class LeaveRequest {
 }
 
 class GoogleCalendarService {
-  // 일정 등록(events)과 캘린더 목록 조회(readonly) 모두 필요
+  // 일정 등록(events), 캘린더 목록 조회(readonly), 설정 백업(드라이브 앱 전용 폴더) 모두 필요
   static const List<String> scopes = [
     CalendarApi.calendarEventsScope,
     CalendarApi.calendarReadonlyScope,
+    DriveApi.driveAppdataScope,
   ];
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
@@ -94,6 +97,9 @@ class GoogleCalendarService {
 
   /// 현재 로그인된 계정 이메일 (이벤트 링크 생성용)
   String? get currentEmail => _googleSignIn.currentUser?.email;
+
+  /// 다른 구글 API(드라이브 백업 등)에서 같은 로그인 세션을 쓰기 위한 인증 클라이언트
+  Future<AuthClient?> authClient() => _googleSignIn.authenticatedClient();
 
   /// 예전 버전(일정만 읽기)으로 로그인한 사용자에게 캘린더 목록 조회 권한을 추가 요청
   Future<bool> ensureScopes() async {

@@ -29,8 +29,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkFirstLaunch();
-    // 알림 권한은 홈 화면에 들어온 뒤 한 번 요청 (Android 13+)
-    NotificationService.instance.requestPermission();
+    // 알림 권한은 홈 화면에 들어온 뒤 한 번 요청 (Android 13+). 설정에서 알림을 껐으면 묻지 않음
+    if (ref.read(leaveStateProvider)?.remindersOn ?? true) {
+      NotificationService.instance.requestPermission();
+    }
     // 데이터 동기화는 Provider가 알아서 build 시점에 수행합니다.
   }
 
@@ -103,9 +105,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
     if (!mounted) return;
     if (result == SettingsScreen.resultLoggedOut) {
-      // 로그아웃 → 다시 로그인 창을 띄우기 위해 목록을 처음부터 다시 로드
-      setState(() => _showGuide = true);
-      ref.invalidate(holidayListProvider);
+      // 로그아웃 → 로컬 설정을 지우면 MyApp 이 초기 화면(구글 로그인 버튼)으로 바꿔 준다.
+      // 바로 구글 로그인 다이얼로그를 띄우지 않고 사용자가 버튼을 눌러 로그인하게 한다.
+      await ref.read(leaveStateProvider.notifier).clearLocal();
     } else {
       ref.read(holidayListProvider.notifier).refresh();
     }
@@ -637,7 +639,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         side: isToday ? const BorderSide(color: Color(0xFF764BA2), width: 2.0) : BorderSide.none,
       ),
       child: ListTile(
-        onTap: () => showLeaveDetailSheet(
+        // 탭: 구글 캘린더에서 바로 열기 (수정/삭제), 길게 누르기: 메모/장소 등 상세 보기
+        onTap: () => _openEventInGoogleCalendar(event['id']),
+        onLongPress: () => showLeaveDetailSheet(
           context,
           event: event,
           onOpenCalendar: () => _openEventInGoogleCalendar(event['id']),
