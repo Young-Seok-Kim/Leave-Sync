@@ -93,7 +93,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     setState(() => _restoring = true);
     try {
       final service = ref.read(calendarServiceProvider);
-      final account = await service.signInSilently() ??
+      // 조용한 로그인이 늦어지면 로딩에 갇히지 않도록 일정 시간 뒤 로그인 버튼을 보여준다
+      final account = await service
+              .signInSilently()
+              .timeout(const Duration(seconds: 8), onTimeout: () => null) ??
           (silent ? null : await service.signIn());
       if (account == null) {
         if (!silent) _toast("구글 로그인이 취소되었습니다.");

@@ -72,7 +72,12 @@ class AuthCheck extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return FutureBuilder(
-      future: ref.read(calendarServiceProvider).signInSilently(),
+      // 구글 서비스가 늦게 응답하면 로딩 화면에 갇히지 않도록 일정 시간 뒤 그냥 홈으로 진입
+      // (홈에서 캘린더를 읽을 때 다시 로그인 시도하므로 문제 없음)
+      future: ref
+          .read(calendarServiceProvider)
+          .signInSilently()
+          .timeout(const Duration(seconds: 8), onTimeout: () => null),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
