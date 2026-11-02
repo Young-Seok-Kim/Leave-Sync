@@ -178,19 +178,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text("초기 설정",
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.white,
+      // 상단 타이틀 없이 내용만 보여준다 (상태바 영역은 SafeArea 로 피함)
+      body: SafeArea(
+        child: switch (_step) {
+          _Step.checking =>
+            const Center(child: CircularProgressIndicator(color: _brand)),
+          _Step.login => _buildLoginStep(),
+          _Step.form => _buildFormStep(),
+        },
       ),
-      body: switch (_step) {
-        _Step.checking =>
-          const Center(child: CircularProgressIndicator(color: _brand)),
-        _Step.login => _buildLoginStep(),
-        _Step.form => _buildFormStep(),
-      },
     );
   }
 
@@ -208,7 +204,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   width: 88, height: 88),
             ),
             const SizedBox(height: 24),
-            const Text("Leave Sync",
+            const Text("연차매니저",
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             const Text(
