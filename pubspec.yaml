@@ -48,7 +48,7 @@ flutter:
   # 2. flutter 섹션 바로 아래에 맞춰야 합니다
   assets:
     - .env
-    - assets/images/app_icon.png
+    - assets/images/
 
 flutter_launcher_icons:
   android: "launcher_icon"

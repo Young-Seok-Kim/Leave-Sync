@@ -4,6 +4,48 @@ import '../../data/providers/leave_provider.dart';
 
 enum _Step { checking, login, form }
 
+/// 구글 공식 "Sign in with Google" 버튼 에셋(Light / Pill, 1x~4x) 을 그대로 사용.
+/// 출처: https://developers.google.com/identity/branding-guidelines (signin-assets.zip)
+class _GoogleSignInButton extends StatelessWidget {
+  static const double _width = 220; // 원본 비율 180:40 유지
+  static const double _height = _width * 40 / 180;
+
+  final bool loading;
+  final VoidCallback onPressed;
+
+  const _GoogleSignInButton({required this.loading, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: loading ? null : onPressed,
+        borderRadius: BorderRadius.circular(_height / 2),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Opacity(
+              opacity: loading ? 0.4 : 1,
+              child: Image.asset(
+                'assets/images/google_signin_button.png',
+                width: _width,
+                height: _height,
+                fit: BoxFit.contain,
+              ),
+            ),
+            if (loading)
+              const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -27,7 +69,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    // 앱을 지웠다 다시 설치한 경우: 기기에 남은 구글 로그인으로 조용히 이전 설정 복원 시도
+    // 기기에 구글 로그인이 남아 있으면(재설치 등) 창 없이 조용히 복원 시도. 없으면 로그인 버튼을 보여준다.
     _restoreFromAccount(silent: true);
   }
 
@@ -45,6 +87,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// 구글 로그인 뒤 계정에 백업된 설정(입사일·연차·초기화일·캘린더)을 불러온다.
   /// - 백업이 있으면 그대로 적용 → leaveStateProvider 가 채워져 MyApp 이 자동으로 홈 화면으로 넘어간다.
   /// - 백업이 없으면 그때만 입사일 입력 화면을 보여준다.
+  /// [silent] 면 로그인 창을 띄우지 않고 기기에 남은 로그인만 확인한다 (토스트도 없음).
   Future<void> _restoreFromAccount({required bool silent}) async {
     if (_restoring) return;
     setState(() => _restoring = true);
@@ -151,47 +194,36 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
-  /// 1단계: 구글 로그인. 백업된 설정이 있으면 여기서 바로 홈으로 넘어간다.
+  /// 1단계: 화면 가운데 구글 로그인 버튼 하나. 백업된 설정이 있으면 여기서 바로 홈으로 넘어간다.
   Widget _buildLoginStep() {
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("반갑습니다! 👋\n구글 계정으로 시작하세요.",
-              style: TextStyle(
-                  fontSize: 22, fontWeight: FontWeight.bold, height: 1.4)),
-          const SizedBox(height: 12),
-          const Text(
-            "구글 캘린더의 휴가 일정을 읽어와 연차를 계산하고,\n입사일 등 설정은 계정에 저장되어 앱을 다시 설치해도 그대로 복원됩니다.",
-            style: TextStyle(fontSize: 14, color: Colors.black54, height: 1.5),
-          ),
-          const Spacer(),
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed:
-                  _restoring ? null : () => _restoreFromAccount(silent: false),
-              icon: _restoring
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.login),
-              label: Text(_restoring ? "확인하는 중..." : "구글 계정으로 시작하기",
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _brand,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-              ),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset('assets/images/app_icon.png',
+                  width: 88, height: 88),
             ),
-          ),
-        ],
+            const SizedBox(height: 24),
+            const Text("Leave Sync",
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text(
+              "구글 캘린더로 연차를 관리합니다.\n설정은 계정에 저장되어 재설치해도 그대로 복원됩니다.",
+              textAlign: TextAlign.center,
+              style:
+                  TextStyle(fontSize: 13, color: Colors.black54, height: 1.5),
+            ),
+            const SizedBox(height: 40),
+            _GoogleSignInButton(
+              loading: _restoring,
+              onPressed: () => _restoreFromAccount(silent: false),
+            ),
+          ],
+        ),
       ),
     );
   }
