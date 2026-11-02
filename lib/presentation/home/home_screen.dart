@@ -637,7 +637,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         side: isToday ? const BorderSide(color: Color(0xFF764BA2), width: 2.0) : BorderSide.none,
       ),
       child: ListTile(
-        onTap: () => showLeaveDetailSheet(
+        // 탭: 구글 캘린더에서 바로 열기 (수정/삭제), 길게 누르기: 메모/장소 등 상세 보기
+        onTap: () => _openEventInGoogleCalendar(event['id']),
+        onLongPress: () => showLeaveDetailSheet(
           context,
           event: event,
           onOpenCalendar: () => _openEventInGoogleCalendar(event['id']),

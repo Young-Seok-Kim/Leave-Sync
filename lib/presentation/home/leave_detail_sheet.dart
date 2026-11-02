@@ -9,11 +9,13 @@ Future<void> showLeaveDetailSheet(
   return showModalBottomSheet<void>(
     context: context,
     useSafeArea: true,
+    isScrollControlled: true,
     backgroundColor: Colors.white,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (ctx) => _LeaveDetailSheet(event: event, onOpenCalendar: onOpenCalendar),
+    builder: (ctx) =>
+        _LeaveDetailSheet(event: event, onOpenCalendar: onOpenCalendar),
   );
 }
 
@@ -25,20 +27,24 @@ class _LeaveDetailSheet extends StatelessWidget {
 
   const _LeaveDetailSheet({required this.event, required this.onOpenCalendar});
 
-  DateTime _toDate(dynamic v) => v is DateTime ? v : DateTime.parse(v.toString());
+  DateTime _toDate(dynamic v) =>
+      v is DateTime ? v : DateTime.parse(v.toString());
 
   String _fmt(DateTime d) =>
       "${d.year}.${d.month.toString().padLeft(2, '0')}.${d.day.toString().padLeft(2, '0')} (${_weekday(d)})";
 
-  String _weekday(DateTime d) => const ['월', '화', '수', '목', '금', '토', '일'][d.weekday - 1];
+  String _weekday(DateTime d) =>
+      const ['월', '화', '수', '목', '금', '토', '일'][d.weekday - 1];
 
-  String _fmtNum(double n) =>
-      n == n.toInt() ? n.toInt().toString() : n.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
+  String _fmtNum(double n) => n == n.toInt()
+      ? n.toInt().toString()
+      : n.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
 
   @override
   Widget build(BuildContext context) {
     final start = _toDate(event['date']).toLocal();
-    DateTime end = event['endDate'] != null ? _toDate(event['endDate']).toLocal() : start;
+    DateTime end =
+        event['endDate'] != null ? _toDate(event['endDate']).toLocal() : start;
     if (end.isBefore(start)) end = start;
 
     final bool sameDay = DateUtils.isSameDay(start, end);
@@ -67,80 +73,113 @@ class _LeaveDetailSheet extends StatelessWidget {
     final bool isPast = DateTime(start.year, start.month, start.day)
         .isBefore(DateTime(now.year, now.month, now.day));
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: isPast ? Colors.grey[300] : const Color(0xFFF3E5F5),
-                child: Icon(Icons.beach_access, color: isPast ? Colors.grey[600] : _brand),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  (event['title'] ?? '').toString(),
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    // 메모 등 내용이 길어도 하단 버튼이 항상 보이도록, 정보 영역만 스크롤되고 버튼은 고정
+    final maxHeight = MediaQuery.of(context).size.height * 0.85;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF3E0),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  "-${_fmtNum(deduction)}개",
-                  style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          _row(Icons.date_range, "기간", dayCount > 1 ? "$period\n총 $dayCount일 (주말·공휴일 제외 ${_fmtNum(deduction)}개 차감)" : period),
-          if (location.isNotEmpty) _row(Icons.place_outlined, "장소", location),
-          if (memo.isNotEmpty) _row(Icons.notes, "메모", memo),
-          if (calendarName.isNotEmpty) _row(Icons.calendar_month, "캘린더", calendarName),
-          if (location.isEmpty && memo.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 4, left: 32),
-              child: Text("장소와 메모가 없는 일정입니다.", style: TextStyle(fontSize: 12, color: Colors.grey)),
-            ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                onOpenCalendar();
-              },
-              icon: const Icon(Icons.open_in_new, size: 18),
-              label: const Text("구글 캘린더에서 열기 (수정/삭제)"),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _brand,
-                side: const BorderSide(color: _brand),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2)),
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor:
+                      isPast ? Colors.grey[300] : const Color(0xFFF3E5F5),
+                  child: Icon(Icons.beach_access,
+                      color: isPast ? Colors.grey[600] : _brand),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    (event['title'] ?? '').toString(),
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF3E0),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    "-${_fmtNum(deduction)}개",
+                    style: const TextStyle(
+                        color: Colors.deepOrange, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // 메모가 길면 이 영역만 스크롤되고 아래 버튼은 항상 보인다
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _row(
+                        Icons.date_range,
+                        "기간",
+                        dayCount > 1
+                            ? "$period\n총 $dayCount일 (주말·공휴일 제외 ${_fmtNum(deduction)}개 차감)"
+                            : period),
+                    if (location.isNotEmpty)
+                      _row(Icons.place_outlined, "장소", location),
+                    if (memo.isNotEmpty) _row(Icons.notes, "메모", memo),
+                    if (calendarName.isNotEmpty)
+                      _row(Icons.calendar_month, "캘린더", calendarName),
+                    if (location.isEmpty && memo.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 4, left: 32),
+                        child: Text("장소와 메모가 없는 일정입니다.",
+                            style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  onOpenCalendar();
+                },
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text("구글 캘린더에서 열기 (수정/삭제)"),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _brand,
+                  side: const BorderSide(color: _brand),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  String _time(DateTime d) => "${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}";
+  String _time(DateTime d) =>
+      "${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}";
 
   Widget _row(IconData icon, String label, String value) {
     return Padding(
@@ -152,10 +191,13 @@ class _LeaveDetailSheet extends StatelessWidget {
           const SizedBox(width: 12),
           SizedBox(
             width: 44,
-            child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            child: Text(label,
+                style: const TextStyle(color: Colors.grey, fontSize: 13)),
           ),
           Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.black87)),
+            child: Text(value,
+                style: const TextStyle(
+                    fontSize: 14, height: 1.4, color: Colors.black87)),
           ),
         ],
       ),

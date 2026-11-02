@@ -7,12 +7,16 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/user_setting.dart';
 import '../services/google_calendar_service.dart';
 import '../services/notification_service.dart';
+import '../services/settings_backup_service.dart';
 import '../services/widget_service.dart';
 
 final calendarServiceProvider = Provider((ref) => GoogleCalendarService());
 
+final settingsBackupProvider =
+    Provider((ref) => SettingsBackupService(ref.read(calendarServiceProvider)));
+
 final leaveStateProvider = StateNotifierProvider<LeaveNotifier, UserSetting?>((ref) {
-  return LeaveNotifier();
+  return LeaveNotifier(backup: ref.read(settingsBackupProvider));
 });
 
 final holidayListProvider = AsyncNotifierProvider<HolidayListNotifier, List<Map<String, dynamic>>>(() {
@@ -23,7 +27,12 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
 
   static const int _currentSchemaVersion = 2;
 
-  LeaveNotifier() : super(null) {
+  /// 구글 드라이브 백업 (테스트 등에서는 null)
+  final SettingsBackupService? _backup;
+
+  LeaveNotifier({SettingsBackupService? backup})
+      : _backup = backup,
+        super(null) {
     _init();
   }
 
@@ -131,10 +140,41 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
   }
 
 
-  Future<void> _saveState(UserSetting setting) async {
+  Future<void> _saveState(UserSetting setting, {bool backup = true}) async {
     state = setting;
     final box = Hive.box<UserSetting>('settings');
     await box.put(0, setting);
+    // 로그인돼 있으면 구글 드라이브에도 올려 두어 앱을 지워도 설정이 남도록 함
+    final b = _backup;
+    if (backup && b != null) unawaited(b.backup(setting));
+  }
+
+  /// 드라이브 백업에서 받아온 설정을 그대로 적용 (다시 올릴 필요는 없음)
+  Future<void> applyRestored(UserSetting restored, String email) async {
+    var setting = restored.copyWith(accountEmail: email, isFirstRun: false);
+    if ((setting.schemaVersion ?? 0) < _currentSchemaVersion) {
+      setting = _migrate(setting, setting.schemaVersion ?? 0);
+    }
+    await _saveState(setting, backup: false);
+    refreshTotalLeave();
+  }
+
+  /// 로그인한 계정과 로컬 설정을 맞춘다.
+  /// - 로컬 설정이 아직 어느 계정에도 묶이지 않았으면 이 계정에 묶고 백업
+  /// - 다른 계정으로 바뀌었으면 그 계정의 백업이 있을 때 그것으로 교체, 없으면 현재 설정을 그 계정에 묶어 백업
+  Future<void> syncAccount(String email) async {
+    final current = state;
+    if (current == null || current.accountEmail == email) return;
+
+    final b = _backup;
+    if (current.accountEmail != null && b != null) {
+      final restored = await b.restore();
+      if (restored != null) {
+        await applyRestored(restored, email);
+        return;
+      }
+    }
+    await _saveState(current.copyWith(accountEmail: email));
   }
 
   Future<void> saveSettings(
@@ -154,6 +194,7 @@ class LeaveNotifier extends StateNotifier<UserSetting?> {
       lastAutoUpdate: updateLastUpdate ? now : state?.lastAutoUpdate,
       schemaVersion: _currentSchemaVersion, // 저장 시 스키마 버전 명시
       calendarIds: calendarIds ?? state?.calendarIds,
+      accountEmail: state?.accountEmail,
     );
     await _saveState(setting);
   }
@@ -210,15 +251,20 @@ class HolidayListNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
 
   Future<List<Map<String, dynamic>>> _fetchCalendarData() async {
     final service = ref.read(calendarServiceProvider);
-    final settings = ref.read(leaveStateProvider);
+    var settings = ref.read(leaveStateProvider);
 
     if (settings == null) return [];
 
     var account = await service.signInSilently() ?? await service.signIn();
     if (account == null) throw NotSignedInException();
 
-    // 예전 버전(읽기 전용)으로 로그인한 경우 일정 등록 권한을 추가로 요청
+    // 예전 버전(읽기 전용)으로 로그인한 경우 일정 등록/백업 권한을 추가로 요청
     await service.ensureScopes();
+
+    // 로그인한 계정 기준으로 설정을 맞춤 (계정이 바뀌었으면 그 계정의 백업으로 교체)
+    final leaveNotifier = ref.read(leaveStateProvider.notifier);
+    await leaveNotifier.syncAccount(account.email);
+    settings = ref.read(leaveStateProvider) ?? settings;
 
     // ★ 수정: 서비스 호출 시 입사일 정보 전달
     final result = await service.calculateUsedLeave(

@@ -24,13 +24,14 @@ class UserSettingAdapter extends TypeAdapter<UserSetting> {
       lastAutoUpdate: fields[4] as DateTime?,
       schemaVersion: fields[5] as int?,
       calendarIds: (fields[6] as List?)?.cast<String>(),
+      accountEmail: fields[7] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, UserSetting obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(8)
       ..writeByte(0)
       ..write(obj.totalLeave)
       ..writeByte(1)
@@ -44,7 +45,9 @@ class UserSettingAdapter extends TypeAdapter<UserSetting> {
       ..writeByte(5)
       ..write(obj.schemaVersion)
       ..writeByte(6)
-      ..write(obj.calendarIds);
+      ..write(obj.calendarIds)
+      ..writeByte(7)
+      ..write(obj.accountEmail);
   }
 
   @override
