@@ -1,3 +1,4 @@
+import 'package:leavesync/core/theme/app_palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,7 +18,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  static const _brand = Color(0xFF764BA2);
+  static const _brand = AppPalette.brand;
 
   late TextEditingController _totalController;
   late DateTime _selectedDate;
@@ -229,7 +230,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     : "오른쪽 아이콘을 눌러 입사일로 자동 계산",
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 suffixIcon: IconButton(
-                  icon: const Icon(Icons.auto_awesome, color: Colors.deepPurpleAccent),
+                  icon: const Icon(Icons.auto_awesome, color: AppPalette.accent),
                   tooltip: "입사일로 자동 계산",
                   onPressed: _pickEntryDate,
                 ),
@@ -324,10 +325,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
-    Color iconColor = _brand,
+    Color? iconColor,
   }) {
     return ListTile(
-      leading: Icon(icon, color: iconColor),
+      leading: Icon(icon, color: iconColor ?? _brand),
       title: Text(title),
       subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
       trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),

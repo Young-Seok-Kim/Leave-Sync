@@ -1,3 +1,4 @@
+import 'package:leavesync/core/theme/app_palette.dart';
 import 'package:flutter/material.dart';
 import '../../data/services/google_calendar_service.dart';
 import '../../data/services/naver_place_service.dart';
@@ -26,7 +27,7 @@ class _AddLeaveSheet extends StatefulWidget {
 }
 
 class _AddLeaveSheetState extends State<_AddLeaveSheet> {
-  static const _brand = Color(0xFF764BA2);
+  static const _brand = AppPalette.brand;
 
   LeaveType _type = LeaveType.full;
   late DateTime _start;
@@ -162,7 +163,7 @@ class _AddLeaveSheetState extends State<_AddLeaveSheet> {
                 return ChoiceChip(
                   label: Text(t.isAllDay ? "${t.label} (종일)" : "${t.label} ${t.startHour}-${t.endHour}시"),
                   selected: selected,
-                  selectedColor: const Color(0xFFF3E5F5),
+                  selectedColor: AppPalette.brandLight,
                   labelStyle: TextStyle(
                     color: selected ? _brand : Colors.black87,
                     fontWeight: selected ? FontWeight.bold : FontWeight.normal,

@@ -1,3 +1,4 @@
+import 'package:leavesync/core/theme/app_palette.dart';
 import 'package:flutter/material.dart';
 
 /// 상세 사용 내역 항목을 탭했을 때 보여주는 상세 정보 시트
@@ -20,7 +21,6 @@ Future<void> showLeaveDetailSheet(
 }
 
 class _LeaveDetailSheet extends StatelessWidget {
-  static const _brand = Color(0xFF764BA2);
 
   final Map<String, dynamic> event;
   final VoidCallback onOpenCalendar;
@@ -98,9 +98,9 @@ class _LeaveDetailSheet extends StatelessWidget {
               children: [
                 CircleAvatar(
                   backgroundColor:
-                      isPast ? Colors.grey[300] : const Color(0xFFF3E5F5),
+                      isPast ? Colors.grey[300] : AppPalette.brandLight,
                   child: Icon(Icons.beach_access,
-                      color: isPast ? Colors.grey[600] : _brand),
+                      color: isPast ? Colors.grey[600] : AppPalette.brand),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -114,13 +114,13 @@ class _LeaveDetailSheet extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF3E0),
+                    color: AppPalette.accentLight,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     "-${_fmtNum(deduction)}개",
                     style: const TextStyle(
-                        color: Colors.deepOrange, fontWeight: FontWeight.bold),
+                        color: AppPalette.accent, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -165,8 +165,8 @@ class _LeaveDetailSheet extends StatelessWidget {
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: const Text("구글 캘린더에서 열기 (수정/삭제)"),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: _brand,
-                  side: const BorderSide(color: _brand),
+                  foregroundColor: AppPalette.brand,
+                  side: const BorderSide(color: AppPalette.brand),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),

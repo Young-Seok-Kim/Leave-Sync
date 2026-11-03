@@ -1,3 +1,4 @@
+import 'package:leavesync/core/theme/app_palette.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,8 +21,8 @@ class DragRangeCalendar extends StatefulWidget {
 }
 
 class _DragRangeCalendarState extends State<DragRangeCalendar> {
-  static const _brand = Color(0xFF764BA2);
-  static const _brandLight = Color(0xFFEDE4F5);
+  static const _brand = AppPalette.brand;
+  static const _brandLight = AppPalette.brandLight;
   static const double _cellHeight = 42;
   static const int _rows = 6;
 

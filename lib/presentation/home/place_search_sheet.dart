@@ -1,3 +1,4 @@
+import 'package:leavesync/core/theme/app_palette.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -27,7 +28,7 @@ class _PlaceSearchSheet extends StatefulWidget {
 }
 
 class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
-  static const _brand = Color(0xFF764BA2);
+  static const _brand = AppPalette.brand;
 
   final _service = NaverPlaceService();
   late final TextEditingController _controller;
@@ -102,13 +103,13 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
               height: 4,
               decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 16, 24, 8),
               child: Row(
                 children: [
-                  const Text("장소 검색", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const Spacer(),
-                  const Text("네이버 지역 검색", style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text("장소 검색", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Spacer(),
+                  Text("네이버 지역 검색", style: TextStyle(fontSize: 11, color: Colors.grey)),
                 ],
               ),
             ),

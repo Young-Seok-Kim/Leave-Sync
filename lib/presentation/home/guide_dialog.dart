@@ -1,3 +1,4 @@
+import 'package:leavesync/core/theme/app_palette.dart';
 import 'package:flutter/material.dart';
 
 /// 캘린더 작성 규칙 안내 카드 (첫 실행 오버레이와 설정의 도움말에서 공용)
@@ -16,7 +17,7 @@ class GuideCard extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.calendar_month, color: Color(0xFF764BA2), size: 48),
+          const Icon(Icons.calendar_month, color: AppPalette.brand, size: 48),
           const SizedBox(height: 16),
           const Text("💡 구글 캘린더 연동 안내", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
@@ -26,9 +27,9 @@ class GuideCard extends StatelessWidget {
             style: TextStyle(color: Colors.black87, height: 1.5),
           ),
           const SizedBox(height: 24),
-          _row("제목에 '연차' 포함 시", "1.0개 차감"),
-          _row("제목에 '반차' 포함 시", "0.5개 차감"),
-          _row("제목에 '반반차' 포함 시", "0.25개 차감"),
+          _row(context, "제목에 '연차' 포함 시", "1.0개 차감"),
+          _row(context, "제목에 '반차' 포함 시", "0.5개 차감"),
+          _row(context, "제목에 '반반차' 포함 시", "0.25개 차감"),
           const SizedBox(height: 8),
           const Text(
             "주말과 공휴일은 자동으로 제외됩니다.",
@@ -40,7 +41,7 @@ class GuideCard extends StatelessWidget {
             child: ElevatedButton(
               onPressed: onClose,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF764BA2),
+                backgroundColor: AppPalette.brand,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -53,13 +54,13 @@ class GuideCard extends StatelessWidget {
     );
   }
 
-  Widget _row(String t, String v) => Padding(
+  Widget _row(BuildContext context, String t, String v) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(t),
-            Text(v, style: const TextStyle(color: Color(0xFF764BA2), fontWeight: FontWeight.bold)),
+            Text(v, style: const TextStyle(color: AppPalette.brand, fontWeight: FontWeight.bold)),
           ],
         ),
       );

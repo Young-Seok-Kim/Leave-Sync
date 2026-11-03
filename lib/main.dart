@@ -5,6 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:leavesync/presentation/home/home_screen.dart';
 import 'package:leavesync/presentation/onboarding/onboarding_screen.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:leavesync/core/theme/app_palette.dart';
 
 import 'data/models/user_setting.dart';
 import 'data/providers/leave_provider.dart';
@@ -37,8 +38,16 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userSetting = ref.watch(leaveStateProvider);
-
     return MaterialApp(
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: AppPalette.brand,
+          primary: AppPalette.brand,
+          secondary: AppPalette.accent,
+        ),
+        scaffoldBackgroundColor: AppPalette.background,
+      ),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
