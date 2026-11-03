@@ -1,3 +1,4 @@
+import 'package:leavesync/core/theme/app_palette.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,7 +85,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               Navigator.pop(context);
               _openSettings();
             },
-            child: const Text("설정하러 가기", style: TextStyle(color: Color(0xFF764BA2), fontWeight: FontWeight.bold)),
+            child: const Text("설정하러 가기", style: TextStyle(color: AppPalette.brand, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -122,7 +123,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final DateTime? resetDate = settings?.resetDate;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F7),
+      backgroundColor: AppPalette.background,
       appBar: AppBar(
         title: const Text("내 연차 현황", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
@@ -186,14 +187,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           );
         },
         // 진짜 데이터가 '아예' 없을 때(맨 처음 실행 등)만 이 로딩이 돕니다.
-        loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF764BA2))),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppPalette.brand)),
         error: (err, stack) => _buildErrorView(err),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isAddingLeave ? null : _showAddLeaveSheet,
         label: const Text("연차 등록", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5)),
         icon: const Icon(Icons.add_task),
-        backgroundColor: const Color(0xFF764BA2),
+        backgroundColor: AppPalette.brand,
         foregroundColor: Colors.white,
         elevation: 10,
         shape: RoundedRectangleBorder(
@@ -237,7 +238,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               icon: const Icon(Icons.refresh),
               label: const Text("다시 시도"),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF764BA2),
+                backgroundColor: AppPalette.brand,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -248,7 +249,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               onPressed: () => ref.read(holidayListProvider.notifier).reSignIn(),
               icon: const Icon(Icons.login, size: 18),
               label: const Text("다른 계정으로 다시 로그인"),
-              style: TextButton.styleFrom(foregroundColor: const Color(0xFF764BA2)),
+              style: TextButton.styleFrom(foregroundColor: AppPalette.brand),
             ),
           ],
         ),
@@ -326,13 +327,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.tune, size: 14, color: isCustom ? const Color(0xFF764BA2) : Colors.grey),
+                              Icon(Icons.tune, size: 14, color: isCustom ? AppPalette.brand : Colors.grey),
                               const SizedBox(width: 4),
                               Text(
                                 "${_fmtDate(displayRange.start)} ~ ${_fmtDate(displayRange.end)}",
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: isCustom ? const Color(0xFF764BA2) : Colors.grey,
+                                  color: isCustom ? AppPalette.brand : Colors.grey,
                                   fontWeight: isCustom ? FontWeight.bold : FontWeight.normal,
                                 ),
                               ),
@@ -340,7 +341,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                                 const SizedBox(width: 2),
                                 GestureDetector(
                                   onTap: () => setState(() => _customRange = null),
-                                  child: const Icon(Icons.close, size: 14, color: Color(0xFF764BA2)),
+                                  child: const Icon(Icons.close, size: 14, color: AppPalette.brand),
                                 ),
                               ],
                             ],
@@ -390,7 +391,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       saveText: "적용",
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.light(primary: Color(0xFF764BA2)),
+          colorScheme: const ColorScheme.light(primary: AppPalette.brand),
         ),
         child: child!,
       ),
@@ -437,7 +438,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 14, color: const Color(0xFF764BA2)),
+                Icon(icon, size: 14, color: AppPalette.brand),
                 const SizedBox(width: 4),
                 Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87)),
                 const SizedBox(width: 2),
@@ -471,7 +472,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: const Color(0xFFF5F5F7),
+      backgroundColor: AppPalette.background,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => ConstrainedBox(
         constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.75),
@@ -491,7 +492,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                   Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
                   Text(
                     "${events.length}건 · ${_fmtNum(totalDeduction)}개",
-                    style: const TextStyle(fontSize: 13, color: Colors.deepOrange, fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontSize: 13, color: AppPalette.accent, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -519,11 +520,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [Color(0xFF667EEA), Color(0xFF764BA2)]),
+        gradient: AppPalette.brandGradient,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-              color: Colors.blueAccent.withOpacity(0.2),
+              color: AppPalette.gradientEnd.withValues(alpha: 0.25),
               blurRadius: 15,
               offset: const Offset(0, 8)
           )
@@ -636,7 +637,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       color: isPast ? const Color(0xFFF1F1F1) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: isToday ? const BorderSide(color: Color(0xFF764BA2), width: 2.0) : BorderSide.none,
+        side: isToday ? const BorderSide(color: AppPalette.brand, width: 2.0) : BorderSide.none,
       ),
       child: ListTile(
         // 탭: 구글 캘린더에서 바로 열기 (수정/삭제), 길게 누르기: 메모/장소 등 상세 보기
@@ -647,10 +648,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           onOpenCalendar: () => _openEventInGoogleCalendar(event['id']),
         ),
         leading: CircleAvatar(
-          backgroundColor: isPast ? Colors.grey[300] : const Color(0xFFF3E5F5),
+          backgroundColor: isPast ? Colors.grey[300] : AppPalette.brandLight,
           child: Icon(
               Icons.beach_access,
-              color: isPast ? Colors.grey[600] : const Color(0xFF764BA2)
+              color: isPast ? Colors.grey[600] : AppPalette.brand
           ),
         ),
         title: Row(
@@ -669,7 +670,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               const SizedBox(width: 8),
               const Badge(
                 label: Text("오늘", style: TextStyle(fontSize: 10, color: Colors.white)),
-                backgroundColor: Color(0xFF764BA2),
+                backgroundColor: AppPalette.brand,
               ),
             ]
           ],
@@ -681,7 +682,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         trailing: Text(
             "-${event['deduction']}개",
             style: TextStyle(
-                color: isPast ? Colors.grey[400] : Colors.deepOrange,
+                color: isPast ? Colors.grey[400] : AppPalette.accent,
                 fontWeight: FontWeight.bold,
                 fontSize: 16
             )

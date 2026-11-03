@@ -1,3 +1,4 @@
+import 'package:leavesync/core/theme/app_palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/providers/leave_provider.dart';
@@ -54,7 +55,7 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 }
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
-  static const _brand = Color(0xFF764BA2);
+  static const _brand = AppPalette.brand;
 
   // ★ 수동 수정을 위해 TextEditingController를 다시 도입합니다.
   final _totalController = TextEditingController(text: "15.0");
@@ -257,7 +258,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 ? "${_entryDate!.year}.${_entryDate!.month}.${_entryDate!.day}"
                 : "날짜를 선택하세요",
             icon: Icons.auto_awesome_outlined,
-            iconColor: const Color(0xFF764BA2),
+            iconColor: AppPalette.brand,
             onTap: _pickEntryDate,
           ),
 
@@ -312,7 +313,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     .saveSettings(total, _resetDate, _entryDate);
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF764BA2),
+                backgroundColor: AppPalette.brand,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
               ),
@@ -334,20 +335,20 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: isCalculated ? const Color(0xFFF3E5F5) : Colors.grey.shade100,
+        color: isCalculated ? AppPalette.brandLight : Colors.grey.shade100,
         border: Border.all(
             color:
-                isCalculated ? const Color(0xFFE1BEE7) : Colors.grey.shade300,
+                isCalculated ? AppPalette.brandLighter : Colors.grey.shade300,
             width: 1.5),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
           CircleAvatar(
-              backgroundColor: Colors.deepPurpleAccent.withOpacity(0.1),
+              backgroundColor: AppPalette.accent.withOpacity(0.1),
               radius: 24,
               child: const Icon(Icons.beach_access_outlined,
-                  color: Colors.deepPurpleAccent)),
+                  color: AppPalette.accent)),
           const SizedBox(width: 16),
           Expanded(
             child: TextField(
@@ -360,7 +361,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: Colors.deepOrangeAccent),
+                  color: AppPalette.accent),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
             ),
