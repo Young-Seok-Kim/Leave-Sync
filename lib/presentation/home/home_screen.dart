@@ -22,8 +22,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   bool _showGuide = false;
   bool _isAddingLeave = false;
-  // 상세 사용 내역에 표시할 기간 (null 이면 현재 집계 주기)
-  DateTimeRange? _customRange;
 
   @override
   void initState() {
@@ -155,15 +153,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           final usedLeave = cycleEvents.fold<double>(0.0, (sum, item) => sum + (item['deduction'] ?? 0.0));
           final remaining = (total - usedLeave).clamp(0.0, total);
 
-          // 상세 내역은 사용자가 고른 기간(없으면 집계 주기) 기준
-          final displayRange = _customRange ?? cycleRange;
-          final displayEvents = displayRange == null
+          // 상세 내역은 현재 집계 주기 기준
+          final displayEvents = cycleRange == null
               ? allEvents
-              : filterLeaveEvents(allEvents, displayRange.start, displayRange.end);
+              : filterLeaveEvents(allEvents, cycleRange.start, cycleRange.end);
 
           return Stack(
             children: [
-              _buildMainContent(total, remaining, allEvents, displayEvents, displayRange, cycleRange, resetDate),
+              _buildMainContent(total, remaining, allEvents, displayEvents, cycleRange, resetDate),
               if (_showGuide)
                 Container(
                   color: Colors.black.withOpacity(0.85),
@@ -298,11 +295,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     List<Map<String, dynamic>> allEvents,
     List<Map<String, dynamic>> events,
     DateTimeRange? displayRange,
-    DateTimeRange? cycleRange,
     DateTime? resetDate,
   ) {
-    final bool isCustom = _customRange != null;
-
     return RefreshIndicator(
       onRefresh: () => ref.read(holidayListProvider.notifier).refresh(),
       child: CustomScrollView(
@@ -319,33 +313,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                     const Text("상세 사용 내역", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     const Spacer(),
                     if (displayRange != null)
-                      InkWell(
-                        onTap: () => _pickDisplayRange(displayRange, cycleRange),
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.tune, size: 14, color: isCustom ? AppPalette.brand : Colors.grey),
-                              const SizedBox(width: 4),
-                              Text(
-                                "${_fmtDate(displayRange.start)} ~ ${_fmtDate(displayRange.end)}",
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isCustom ? AppPalette.brand : Colors.grey,
-                                  fontWeight: isCustom ? FontWeight.bold : FontWeight.normal,
-                                ),
-                              ),
-                              if (isCustom) ...[
-                                const SizedBox(width: 2),
-                                GestureDetector(
-                                  onTap: () => setState(() => _customRange = null),
-                                  child: const Icon(Icons.close, size: 14, color: AppPalette.brand),
-                                ),
-                              ],
-                            ],
-                          ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.date_range, size: 14, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(
+                              "${_fmtDate(displayRange.start)} ~ ${_fmtDate(displayRange.end)}",
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ],
                         ),
                       ),
                   ],
@@ -379,30 +358,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   }
 
   /// 이번 달 사용량과 다가오는 휴가를 한 줄로 요약
-  /// 상세 내역 기간 선택 (기본값은 집계 주기)
-  Future<void> _pickDisplayRange(DateTimeRange current, DateTimeRange? cycleRange) async {
-    final now = DateTime.now();
-    final picked = await showDateRangePicker(
-      context: context,
-      initialDateRange: current,
-      firstDate: DateTime(now.year - 10),
-      lastDate: DateTime(now.year + 10, 12, 31),
-      helpText: "상세 내역에 표시할 기간",
-      saveText: "적용",
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.light(primary: AppPalette.brand),
-        ),
-        child: child!,
-      ),
-    );
-    if (picked == null || !mounted) return;
-    final sameAsCycle = cycleRange != null &&
-        DateUtils.isSameDay(picked.start, cycleRange.start) &&
-        DateUtils.isSameDay(picked.end, cycleRange.end);
-    setState(() => _customRange = sameAsCycle ? null : picked);
-  }
-
   /// 이번 달 사용량과 다가오는 휴가를 한 줄로 요약. 탭하면 해당 목록을 보여줌
   Widget _buildUsageSummary(List<Map<String, dynamic>> events) {
     final now = DateTime.now();
