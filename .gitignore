@@ -56,3 +56,5 @@ app.*.map.json
 *.env
 auth_keys.dart
 assets/secrets/
+# 블로그 원고 등 로컬 문서
+docs/
