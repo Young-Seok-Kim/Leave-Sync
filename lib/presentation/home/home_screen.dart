@@ -480,64 +480,73 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
   /// 요약 칩을 눌렀을 때 해당 휴가 목록을 보여주는 시트
   void _showEventListSheet(String title, List<Map<String, dynamic>> events, double totalDeduction) {
-    _showSheet((ctx) => _buildSheetBody(ctx, title, events, totalDeduction));
-  }
-
-  /// 월 칩을 눌렀을 때 보여주는 시트. 좌우 화살표로 다른 달의 휴가도 볼 수 있음
-  void _showMonthlySheet(DateTime initialMonth, List<Map<String, dynamic>> allEvents) {
-    DateTime month = initialMonth;
     _showSheet(
-      (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) {
-          final events = filterLeaveEvents(
-            allEvents,
-            DateTime(month.year, month.month, 1),
-            DateTime(month.year, month.month + 1, 0),
-          );
-          final total = events.fold<double>(0.0, (sum, e) => sum + (e['deduction'] ?? 0.0));
-          void shift(int delta) => setSheetState(() => month = DateTime(month.year, month.month + delta));
-
-          return _buildSheetBody(
-            ctx,
-            "${month.year}년 ${month.month}월에 쓴 휴가",
-            events,
-            total,
-            onPrev: () => shift(-1),
-            onNext: () => shift(1),
-          );
-        },
+      (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.45,
+        minChildSize: 0.3,
+        maxChildSize: 0.95,
+        builder: (ctx, scrollController) => _buildDraggableSheetBody(
+          scrollController: scrollController,
+          title: title,
+          events: events,
+          totalDeduction: totalDeduction,
+        ),
       ),
     );
   }
 
-  static const TextStyle _sheetTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold);
+  /// 월 칩을 눌렀을 때 보여주는 시트. 좌우 화살표로 다른 달의 휴가도 볼 수 있고,
+  /// 위로 끌면 화면 꽉 차게 늘어남
+  void _showMonthlySheet(DateTime initialMonth, List<Map<String, dynamic>> allEvents) {
+    DateTime month = initialMonth;
+    _showSheet(
+      (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.45,
+        minChildSize: 0.3,
+        maxChildSize: 0.95,
+        builder: (ctx, scrollController) => StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final events = filterLeaveEvents(
+              allEvents,
+              DateTime(month.year, month.month, 1),
+              DateTime(month.year, month.month + 1, 0),
+            );
+            final total = events.fold<double>(0.0, (sum, e) => sum + (e['deduction'] ?? 0.0));
+            void shift(int delta) => setSheetState(() => month = DateTime(month.year, month.month + delta));
 
-  void _showSheet(WidgetBuilder builder) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: AppPalette.background,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: builder,
+            return _buildDraggableSheetBody(
+              scrollController: scrollController,
+              title: "${month.year}년 ${month.month}월에 쓴 휴가",
+              events: events,
+              totalDeduction: total,
+              onPrev: () => shift(-1),
+              onNext: () => shift(1),
+            );
+          },
+        ),
+      ),
     );
   }
 
-  /// 시트 공통 레이아웃: 손잡이 + 제목/합계 + 휴가 목록.
-  /// [onPrev]/[onNext] 가 있으면 화살표를 양 끝에 고정하고 제목·합계를 가운데에 두 줄로 표시
-  Widget _buildSheetBody(
-    BuildContext ctx,
-    String title,
-    List<Map<String, dynamic>> events,
-    double totalDeduction, {
+  /// 끌어서 늘릴 수 있는 시트 본문. 헤더(손잡이·제목·합계)는 위에 고정되고 목록만 스크롤되며,
+  /// 헤더까지 스크롤 영역에 포함시켜 어디를 잡고 끌어도 시트가 늘어남.
+  /// [onPrev]/[onNext] 가 있으면 양 끝에 월 이동 화살표를 둠
+  Widget _buildDraggableSheetBody({
+    required ScrollController scrollController,
+    required String title,
+    required List<Map<String, dynamic>> events,
+    required double totalDeduction,
     VoidCallback? onPrev,
     VoidCallback? onNext,
   }) {
+    final bool hasArrows = onPrev != null;
     final countText = Text(
       "${events.length}건 · ${_fmtNum(totalDeduction)}개",
       style: const TextStyle(fontSize: 13, color: AppPalette.accent, fontWeight: FontWeight.bold),
     );
-    final Widget header = onPrev != null
+    final Widget titleRow = hasArrows
         ? Row(
             children: [
               IconButton(
@@ -563,51 +572,75 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               ),
             ],
           )
-        : Row(
-            children: [
-              Expanded(child: Text(title, style: _sheetTitleStyle)),
-              countText,
-            ],
+        : Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(child: Text(title, style: _sheetTitleStyle)),
+                countText,
+              ],
+            ),
           );
-    // 월 이동 시트는 달마다 높이가 달라지면 화살표 위치가 흔들리므로 높이를 고정
-    final bool fixedHeight = onPrev != null;
-    // 월 이동 시트는 화면의 45% 로 짧게 고정, 항목이 많으면 안에서 스크롤
-    final double maxHeight = MediaQuery.of(ctx).size.height * (fixedHeight ? 0.45 : 0.75);
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxHeight, minHeight: fixedHeight ? maxHeight : 0),
+
+    final header = Container(
+      color: AppPalette.background,
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
       child: Column(
-        mainAxisSize: fixedHeight ? MainAxisSize.max : MainAxisSize.min,
         children: [
-          const SizedBox(height: 12),
           Container(
             width: 40,
             height: 4,
             decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)),
           ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(onPrev != null ? 8 : 24, 16, onPrev != null ? 8 : 24, 8),
-            child: header,
-          ),
-          Flexible(
-            child: events.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(32),
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: Text("해당하는 휴가가 없습니다.", style: TextStyle(color: Colors.grey)),
-                    ),
-                  )
-                : ListView.builder(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-                    itemCount: events.length,
-                    itemBuilder: (_, i) => _buildEventTile(events[i]),
-                  ),
-          ),
+          const SizedBox(height: 12),
+          titleRow,
         ],
       ),
     );
+
+    return CustomScrollView(
+      controller: scrollController,
+      slivers: [
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _FixedHeaderDelegate(height: hasArrows ? 112 : 76, child: header),
+        ),
+        if (events.isEmpty)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: Text("해당하는 휴가가 없습니다.", style: TextStyle(color: Colors.grey))),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (_, i) => _buildEventTile(events[i]),
+                childCount: events.length,
+              ),
+            ),
+          ),
+      ],
+    );
   }
+
+  static const TextStyle _sheetTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold);
+
+  void _showSheet(WidgetBuilder builder) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: AppPalette.background,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      // 헤더 배경이 모서리를 덮지 않도록 시트 모양대로 잘라냄
+      clipBehavior: Clip.antiAlias,
+      builder: builder,
+    );
+  }
+
 
   Widget _buildDashboardCard(double total, double remaining, DateTime? resetDate) {
     return Container(
@@ -868,4 +901,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
   String _encodeId(String id, String email) {
     return base64Encode(utf8.encode('$id $email')).replaceAll('=', '');
   }
+}
+
+/// 높이가 고정된 스크롤 고정 헤더
+class _FixedHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double height;
+  final Widget child;
+  const _FixedHeaderDelegate({required this.height, required this.child});
+
+  @override
+  double get minExtent => height;
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => SizedBox.expand(child: child);
+
+  @override
+  bool shouldRebuild(_FixedHeaderDelegate oldDelegate) => oldDelegate.child != child || oldDelegate.height != height;
 }
