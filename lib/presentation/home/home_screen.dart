@@ -22,14 +22,17 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   bool _showGuide = false;
   bool _isAddingLeave = false;
-  // 상세 사용 내역에 표시할 월 (null 이면 현재 집계 주기 전체)
-  DateTime? _viewMonth;
+  // 요약 칩 표시 순서 (길게 눌러 끌어서 바꿀 수 있음)
+  static const List<String> _defaultChipOrder = ['month', 'upcoming', 'past'];
+  static const String _chipOrderKey = 'summary_chip_order';
+  List<String> _chipOrder = List.of(_defaultChipOrder);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkFirstLaunch();
+    _loadChipOrder();
     // 알림 권한은 홈 화면에 들어온 뒤 한 번 요청 (Android 13+). 설정에서 알림을 껐으면 묻지 않음
     if (ref.read(leaveStateProvider)?.remindersOn ?? true) {
       NotificationService.instance.requestPermission();
@@ -54,6 +57,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         });
       }
     }
+  }
+
+  Future<void> _loadChipOrder() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList(_chipOrderKey);
+    if (saved == null || !mounted) return;
+    // 저장된 순서에 없는 칩(새로 추가된 것)은 뒤에 붙임
+    final order = [
+      ...saved.where(_defaultChipOrder.contains),
+      ..._defaultChipOrder.where((k) => !saved.contains(k)),
+    ];
+    setState(() => _chipOrder = order);
+  }
+
+  Future<void> _saveChipOrder() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_chipOrderKey, _chipOrder);
   }
 
   Future<void> _checkFirstLaunch() async {
@@ -155,20 +175,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           final usedLeave = cycleEvents.fold<double>(0.0, (sum, item) => sum + (item['deduction'] ?? 0.0));
           final remaining = (total - usedLeave).clamp(0.0, total);
 
-          // 상세 내역은 선택한 월(없으면 현재 집계 주기) 기준
-          final DateTimeRange? displayRange = _viewMonth != null
-              ? DateTimeRange(
-                  start: DateTime(_viewMonth!.year, _viewMonth!.month, 1),
-                  end: DateTime(_viewMonth!.year, _viewMonth!.month + 1, 0),
-                )
-              : cycleRange;
-          final displayEvents = displayRange == null
+          // 상세 내역은 현재 집계 주기 기준
+          final displayEvents = cycleRange == null
               ? allEvents
-              : filterLeaveEvents(allEvents, displayRange.start, displayRange.end);
+              : filterLeaveEvents(allEvents, cycleRange.start, cycleRange.end);
 
           return Stack(
             children: [
-              _buildMainContent(total, remaining, allEvents, displayEvents, displayRange, resetDate),
+              _buildMainContent(total, remaining, allEvents, displayEvents, cycleRange, resetDate),
               if (_showGuide)
                 Container(
                   color: Colors.black.withOpacity(0.85),
@@ -315,12 +329,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               delegate: SliverChildListDelegate([
                 _buildDashboardCard(total, remaining, resetDate),
                 const SizedBox(height: 32),
-                const Text("상세 사용 내역", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Text("상세 사용 내역", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const Spacer(),
+                    if (displayRange != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.date_range, size: 14, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(
+                              "${_fmtDate(displayRange.start)} ~ ${_fmtDate(displayRange.end)}",
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 _buildUsageSummary(allEvents),
                 const SizedBox(height: 12),
-                _buildPeriodNav(displayRange, events),
-                const SizedBox(height: 4),
               ]),
             ),
           ),
@@ -346,90 +379,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  /// 상세 내역 기간 이동 바. 좌우 화살표로 월을 옮기고, 가운데를 누르면 집계 주기 전체 ↔ 이번 달 전환
-  Widget _buildPeriodNav(DateTimeRange? range, List<Map<String, dynamic>> events) {
-    final bool isMonth = _viewMonth != null;
-    final used = events.fold<double>(0.0, (sum, e) => sum + (e['deduction'] ?? 0.0));
-
-    final String title;
-    final String subtitle;
-    if (isMonth) {
-      title = "${_viewMonth!.year}년 ${_viewMonth!.month}월";
-      subtitle = "사용 ${_fmtNum(used)}개 · 누르면 집계 주기 전체";
-    } else {
-      title = range == null ? "전체 기간" : "집계 주기 전체";
-      subtitle = range == null
-          ? "사용 ${_fmtNum(used)}개 · 누르면 이번 달"
-          : "${_fmtDate(range.start)} ~ ${_fmtDate(range.end)} · 누르면 이번 달";
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            color: AppPalette.brand,
-            tooltip: "이전 달",
-            onPressed: () => _shiftMonth(-1),
-          ),
-          Expanded(
-            child: InkWell(
-              onTap: _toggleViewMode,
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Column(
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: isMonth ? AppPalette.brand : Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            color: AppPalette.brand,
-            tooltip: "다음 달",
-            onPressed: () => _shiftMonth(1),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 표시 월을 [delta]개월 이동. 집계 주기 전체를 보던 중이면 이번 달을 기준으로 이동
-  void _shiftMonth(int delta) {
-    final now = DateTime.now();
-    final base = _viewMonth ?? DateTime(now.year, now.month);
-    setState(() => _viewMonth = DateTime(base.year, base.month + delta));
-  }
-
-  /// 집계 주기 전체 ↔ 이번 달 전환
-  void _toggleViewMode() {
-    final now = DateTime.now();
-    setState(() => _viewMonth = _viewMonth == null ? DateTime(now.year, now.month) : null);
-  }
-
   /// 이번 달 사용량과 다가오는 휴가를 한 줄로 요약. 탭하면 해당 목록을 보여줌
   Widget _buildUsageSummary(List<Map<String, dynamic>> events) {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
+    // 지난 휴가는 현재 집계 주기 안의 것만 집계
+    final resetDate = ref.read(leaveStateProvider)?.resetDate;
+    final DateTime? cycleStart = resetDate == null ? null : currentPeriod(resetDate).start;
 
-    final List<Map<String, dynamic>> thisMonthEvents = [];
     final List<Map<String, dynamic>> upcomingEvents = [];
     final List<Map<String, dynamic>> pastEvents = [];
     double thisMonth = 0.0;
@@ -440,12 +397,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       final deduction = (e['deduction'] ?? 0.0) as double;
       if (d.year == now.year && d.month == now.month) {
         thisMonth += deduction;
-        thisMonthEvents.add(e);
       }
       if (!DateTime(d.year, d.month, d.day).isBefore(todayStart)) {
         upcoming += deduction;
         upcomingEvents.add(e);
-      } else {
+      } else if (cycleStart == null || !DateTime(d.year, d.month, d.day).isBefore(cycleStart)) {
         past += deduction;
         pastEvents.add(e);
       }
@@ -474,75 +430,181 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           ),
         );
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 6,
-      children: [
-        chip(
-          Icons.today,
-          "${now.month}월 사용 ${_fmtNum(thisMonth)}개",
-          () => _showEventListSheet("${now.year}년 ${now.month}월에 쓴 휴가", thisMonthEvents, thisMonth),
-        ),
-        chip(
-          Icons.upcoming,
-          "예정 ${upcomingEvents.length}건 · ${_fmtNum(upcoming)}개",
-          () => _showEventListSheet("다가오는 휴가", upcomingEvents, upcoming),
-        ),
-        chip(
-          Icons.history,
-          "지난 ${pastEvents.length}건 · ${_fmtNum(past)}개",
-          () => _showEventListSheet("지난 휴가", pastEvents, past),
-        ),
-      ],
+    final Map<String, Widget> chips = {
+      'month': chip(
+        Icons.today,
+        "${now.month}월 사용 ${_fmtNum(thisMonth)}개",
+        () => _showMonthlySheet(DateTime(now.year, now.month), events),
+      ),
+      'upcoming': chip(
+        Icons.upcoming,
+        "예정 ${upcomingEvents.length}건 · ${_fmtNum(upcoming)}개",
+        () => _showEventListSheet("다가오는 휴가", upcomingEvents, upcoming),
+      ),
+      'past': chip(
+        Icons.history,
+        "지난 ${pastEvents.length}건 · ${_fmtNum(past)}개",
+        () => _showEventListSheet("이번 주기에 쓴 휴가", pastEvents, past),
+      ),
+    };
+
+    // 한 줄로 가로 스크롤, 길게 눌러 끌면 순서 변경
+    return SizedBox(
+      height: 36,
+      child: ReorderableListView(
+        scrollDirection: Axis.horizontal,
+        buildDefaultDragHandles: false,
+        proxyDecorator: (child, index, animation) => Material(color: Colors.transparent, child: child),
+        onReorder: (oldIndex, newIndex) {
+          setState(() {
+            if (newIndex > oldIndex) newIndex -= 1;
+            final key = _chipOrder.removeAt(oldIndex);
+            _chipOrder.insert(newIndex, key);
+          });
+          _saveChipOrder();
+        },
+        children: [
+          for (int i = 0; i < _chipOrder.length; i++)
+            ReorderableDelayedDragStartListener(
+              key: ValueKey(_chipOrder[i]),
+              index: i,
+              child: Padding(
+                padding: EdgeInsets.only(right: i == _chipOrder.length - 1 ? 0 : 8),
+                child: Center(child: chips[_chipOrder[i]]!),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
   /// 요약 칩을 눌렀을 때 해당 휴가 목록을 보여주는 시트
   void _showEventListSheet(String title, List<Map<String, dynamic>> events, double totalDeduction) {
+    _showSheet((ctx) => _buildSheetBody(ctx, title, events, totalDeduction));
+  }
+
+  /// 월 칩을 눌렀을 때 보여주는 시트. 좌우 화살표로 다른 달의 휴가도 볼 수 있음
+  void _showMonthlySheet(DateTime initialMonth, List<Map<String, dynamic>> allEvents) {
+    DateTime month = initialMonth;
+    _showSheet(
+      (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final events = filterLeaveEvents(
+            allEvents,
+            DateTime(month.year, month.month, 1),
+            DateTime(month.year, month.month + 1, 0),
+          );
+          final total = events.fold<double>(0.0, (sum, e) => sum + (e['deduction'] ?? 0.0));
+          void shift(int delta) => setSheetState(() => month = DateTime(month.year, month.month + delta));
+
+          return _buildSheetBody(
+            ctx,
+            "${month.year}년 ${month.month}월에 쓴 휴가",
+            events,
+            total,
+            onPrev: () => shift(-1),
+            onNext: () => shift(1),
+          );
+        },
+      ),
+    );
+  }
+
+  static const TextStyle _sheetTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold);
+
+  void _showSheet(WidgetBuilder builder) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: AppPalette.background,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.75),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-              child: Row(
-                children: [
-                  Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-                  Text(
-                    "${events.length}건 · ${_fmtNum(totalDeduction)}개",
-                    style: const TextStyle(fontSize: 13, color: AppPalette.accent, fontWeight: FontWeight.bold),
-                  ),
-                ],
+      builder: builder,
+    );
+  }
+
+  /// 시트 공통 레이아웃: 손잡이 + 제목/합계 + 휴가 목록.
+  /// [onPrev]/[onNext] 가 있으면 화살표를 양 끝에 고정하고 제목·합계를 가운데에 두 줄로 표시
+  Widget _buildSheetBody(
+    BuildContext ctx,
+    String title,
+    List<Map<String, dynamic>> events,
+    double totalDeduction, {
+    VoidCallback? onPrev,
+    VoidCallback? onNext,
+  }) {
+    final countText = Text(
+      "${events.length}건 · ${_fmtNum(totalDeduction)}개",
+      style: const TextStyle(fontSize: 13, color: AppPalette.accent, fontWeight: FontWeight.bold),
+    );
+    final Widget header = onPrev != null
+        ? Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left, size: 28),
+                color: AppPalette.brand,
+                tooltip: "이전 달",
+                onPressed: onPrev,
               ),
-            ),
-            Flexible(
-              child: events.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.all(32),
+              Expanded(
+                child: Column(
+                  children: [
+                    Text(title, style: _sheetTitleStyle, textAlign: TextAlign.center),
+                    const SizedBox(height: 2),
+                    countText,
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right, size: 28),
+                color: AppPalette.brand,
+                tooltip: "다음 달",
+                onPressed: onNext,
+              ),
+            ],
+          )
+        : Row(
+            children: [
+              Expanded(child: Text(title, style: _sheetTitleStyle)),
+              countText,
+            ],
+          );
+    // 월 이동 시트는 달마다 높이가 달라지면 화살표 위치가 흔들리므로 높이를 고정
+    final bool fixedHeight = onPrev != null;
+    // 월 이동 시트는 화면의 45% 로 짧게 고정, 항목이 많으면 안에서 스크롤
+    final double maxHeight = MediaQuery.of(ctx).size.height * (fixedHeight ? 0.45 : 0.75);
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight, minHeight: fixedHeight ? maxHeight : 0),
+      child: Column(
+        mainAxisSize: fixedHeight ? MainAxisSize.max : MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(onPrev != null ? 8 : 24, 16, onPrev != null ? 8 : 24, 8),
+            child: header,
+          ),
+          Flexible(
+            child: events.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Align(
+                      alignment: Alignment.topCenter,
                       child: Text("해당하는 휴가가 없습니다.", style: TextStyle(color: Colors.grey)),
-                    )
-                  : ListView.builder(
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-                      itemCount: events.length,
-                      itemBuilder: (_, i) => _buildEventTile(events[i]),
                     ),
-            ),
-          ],
-        ),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                    itemCount: events.length,
+                    itemBuilder: (_, i) => _buildEventTile(events[i]),
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -651,6 +713,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
     final bool isPast = eventDay.isBefore(todayStart);
     final bool isToday = DateUtils.isSameDay(eventDay, now);
+
+    // 현재 집계 주기 밖의 휴가는 이번 연차가 아니므로 따로 표시
+    final resetDate = ref.read(leaveStateProvider)?.resetDate;
+    String? cycleBadge;
+    if (resetDate != null) {
+      final cycle = currentPeriod(resetDate);
+      if (eventDay.isBefore(cycle.start)) {
+        cycleBadge = "이전 주기 연차";
+      } else if (eventDay.isAfter(cycle.end)) {
+        cycleBadge = "다음 주기 연차";
+      }
+    }
+    final bool isOtherCycle = cycleBadge != null;
     // 시작일까지 남은 일수 (아직 지나지 않은 일정에만 날짜 옆에 표시)
     final int daysLeft = eventDay.difference(todayStart).inDays;
     final bool isUpcoming = daysLeft > 0;
@@ -665,10 +740,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: isPast ? 0 : 2,
-      color: isPast ? const Color(0xFFF1F1F1) : Colors.white,
+      color: isOtherCycle
+          ? AppPalette.accentLight
+          : isPast
+              ? const Color(0xFFF1F1F1)
+              : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: isToday ? const BorderSide(color: AppPalette.brand, width: 2.0) : BorderSide.none,
+        side: isToday
+            ? const BorderSide(color: AppPalette.brand, width: 2.0)
+            : isOtherCycle
+                ? BorderSide(color: AppPalette.accent.withValues(alpha: 0.4), width: 1.0)
+                : BorderSide.none,
       ),
       child: ListTile(
         // 탭: 구글 캘린더에서 바로 열기 (수정/삭제), 길게 누르기: 메모/장소 등 상세 보기
@@ -679,10 +762,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           onOpenCalendar: () => _openEventInGoogleCalendar(event['id']),
         ),
         leading: CircleAvatar(
-          backgroundColor: isPast ? Colors.grey[300] : AppPalette.brandLight,
+          backgroundColor: isOtherCycle
+              ? AppPalette.accent.withValues(alpha: 0.15)
+              : isPast
+                  ? Colors.grey[300]
+                  : AppPalette.brandLight,
           child: Icon(
-              Icons.beach_access,
-              color: isPast ? Colors.grey[600] : AppPalette.brand
+            isOtherCycle ? Icons.history : Icons.beach_access,
+            color: isOtherCycle
+                ? AppPalette.accent
+                : isPast
+                    ? Colors.grey[600]
+                    : AppPalette.brand,
           ),
         ),
         title: Row(
@@ -703,7 +794,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
                 label: Text("오늘", style: TextStyle(fontSize: 10, color: Colors.white)),
                 backgroundColor: AppPalette.brand,
               ),
-            ]
+            ],
+            if (cycleBadge != null) ...[
+              const SizedBox(width: 8),
+              Badge(
+                label: Text(cycleBadge, style: const TextStyle(fontSize: 10, color: Colors.white)),
+                backgroundColor: AppPalette.accent,
+              ),
+            ],
           ],
         ),
         subtitle: Text(
@@ -713,7 +811,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         trailing: Text(
             "-${event['deduction']}개",
             style: TextStyle(
-                color: isPast ? Colors.grey[400] : AppPalette.accent,
+                color: isOtherCycle
+                    ? AppPalette.accent.withValues(alpha: 0.6)
+                    : isPast
+                        ? Colors.grey[400]
+                        : AppPalette.accent,
                 fontWeight: FontWeight.bold,
                 fontSize: 16
             )
