@@ -22,6 +22,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   bool _showGuide = false;
   bool _isAddingLeave = false;
+  // 상세 사용 내역에 표시할 월 (null 이면 현재 집계 주기 전체)
+  DateTime? _viewMonth;
 
   @override
   void initState() {
@@ -153,14 +155,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           final usedLeave = cycleEvents.fold<double>(0.0, (sum, item) => sum + (item['deduction'] ?? 0.0));
           final remaining = (total - usedLeave).clamp(0.0, total);
 
-          // 상세 내역은 현재 집계 주기 기준
-          final displayEvents = cycleRange == null
+          // 상세 내역은 선택한 월(없으면 현재 집계 주기) 기준
+          final DateTimeRange? displayRange = _viewMonth != null
+              ? DateTimeRange(
+                  start: DateTime(_viewMonth!.year, _viewMonth!.month, 1),
+                  end: DateTime(_viewMonth!.year, _viewMonth!.month + 1, 0),
+                )
+              : cycleRange;
+          final displayEvents = displayRange == null
               ? allEvents
-              : filterLeaveEvents(allEvents, cycleRange.start, cycleRange.end);
+              : filterLeaveEvents(allEvents, displayRange.start, displayRange.end);
 
           return Stack(
             children: [
-              _buildMainContent(total, remaining, allEvents, displayEvents, cycleRange, resetDate),
+              _buildMainContent(total, remaining, allEvents, displayEvents, displayRange, resetDate),
               if (_showGuide)
                 Container(
                   color: Colors.black.withOpacity(0.85),
@@ -307,31 +315,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
               delegate: SliverChildListDelegate([
                 _buildDashboardCard(total, remaining, resetDate),
                 const SizedBox(height: 32),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    const Text("상세 사용 내역", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                    const Spacer(),
-                    if (displayRange != null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.date_range, size: 14, color: Colors.grey),
-                            const SizedBox(width: 4),
-                            Text(
-                              "${_fmtDate(displayRange.start)} ~ ${_fmtDate(displayRange.end)}",
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
+                const Text("상세 사용 내역", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 _buildUsageSummary(allEvents),
                 const SizedBox(height: 12),
+                _buildPeriodNav(displayRange, events),
+                const SizedBox(height: 4),
               ]),
             ),
           ),
@@ -357,7 +346,84 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     );
   }
 
-  /// 이번 달 사용량과 다가오는 휴가를 한 줄로 요약
+  /// 상세 내역 기간 이동 바. 좌우 화살표로 월을 옮기고, 가운데를 누르면 집계 주기 전체 ↔ 이번 달 전환
+  Widget _buildPeriodNav(DateTimeRange? range, List<Map<String, dynamic>> events) {
+    final bool isMonth = _viewMonth != null;
+    final used = events.fold<double>(0.0, (sum, e) => sum + (e['deduction'] ?? 0.0));
+
+    final String title;
+    final String subtitle;
+    if (isMonth) {
+      title = "${_viewMonth!.year}년 ${_viewMonth!.month}월";
+      subtitle = "사용 ${_fmtNum(used)}개 · 누르면 집계 주기 전체";
+    } else {
+      title = range == null ? "전체 기간" : "집계 주기 전체";
+      subtitle = range == null
+          ? "사용 ${_fmtNum(used)}개 · 누르면 이번 달"
+          : "${_fmtDate(range.start)} ~ ${_fmtDate(range.end)} · 누르면 이번 달";
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            color: AppPalette.brand,
+            tooltip: "이전 달",
+            onPressed: () => _shiftMonth(-1),
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: _toggleViewMode,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Column(
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: isMonth ? AppPalette.brand : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            color: AppPalette.brand,
+            tooltip: "다음 달",
+            onPressed: () => _shiftMonth(1),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 표시 월을 [delta]개월 이동. 집계 주기 전체를 보던 중이면 이번 달을 기준으로 이동
+  void _shiftMonth(int delta) {
+    final now = DateTime.now();
+    final base = _viewMonth ?? DateTime(now.year, now.month);
+    setState(() => _viewMonth = DateTime(base.year, base.month + delta));
+  }
+
+  /// 집계 주기 전체 ↔ 이번 달 전환
+  void _toggleViewMode() {
+    final now = DateTime.now();
+    setState(() => _viewMonth = _viewMonth == null ? DateTime(now.year, now.month) : null);
+  }
+
   /// 이번 달 사용량과 다가오는 휴가를 한 줄로 요약. 탭하면 해당 목록을 보여줌
   Widget _buildUsageSummary(List<Map<String, dynamic>> events) {
     final now = DateTime.now();
@@ -365,8 +431,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
 
     final List<Map<String, dynamic>> thisMonthEvents = [];
     final List<Map<String, dynamic>> upcomingEvents = [];
+    final List<Map<String, dynamic>> pastEvents = [];
     double thisMonth = 0.0;
     double upcoming = 0.0;
+    double past = 0.0;
     for (final e in events) {
       final d = _eventStart(e);
       final deduction = (e['deduction'] ?? 0.0) as double;
@@ -377,6 +445,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       if (!DateTime(d.year, d.month, d.day).isBefore(todayStart)) {
         upcoming += deduction;
         upcomingEvents.add(e);
+      } else {
+        past += deduction;
+        pastEvents.add(e);
       }
     }
 
@@ -416,6 +487,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
           Icons.upcoming,
           "예정 ${upcomingEvents.length}건 · ${_fmtNum(upcoming)}개",
           () => _showEventListSheet("다가오는 휴가", upcomingEvents, upcoming),
+        ),
+        chip(
+          Icons.history,
+          "지난 ${pastEvents.length}건 · ${_fmtNum(past)}개",
+          () => _showEventListSheet("지난 휴가", pastEvents, past),
         ),
       ],
     );
